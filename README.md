@@ -87,7 +87,29 @@ Prepares a project to receive connectors.
 - Appends `connectors/` to `.graphifyignore`, so graphify doesn't index your connector scripts as source code
 - Warns if `graphify` isn't installed
 
-`project` defaults to `.`. Safe to re-run — it never overwrites an existing registry.
+Run it with no `project` in a terminal and it opens an interactive picker instead of assuming a path:
+
+```
+$ brain init
+
+Where do you want to create the brain?
+Pick a number to enter a folder, or type/paste a path.
+
+📂 ~/Documents
+  1) Clients/
+  2) Projects/
+
+  n) create a new folder here
+  a) use this folder as-is
+  u) go up to ~
+  q) cancel
+
+>
+```
+
+It starts at `~/Documents`. A number enters that folder, `u` goes back up, `n` creates a new folder there, `a` picks the current one, and anything containing `/` (or starting with `~`) is treated as a path you typed or pasted. Free text filters the listing by name, so you don't have to count rows in a long list. Nothing is created on disk until you confirm.
+
+When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defaults to `.` — the picker never blocks a script. Safe to re-run either way: it never overwrites an existing registry.
 
 > [!IMPORTANT]
 > `.gitignore` and `.graphifyignore` are **not** interchangeable. Gitignore entries alone do not stop graphify from scanning a path; only `.graphifyignore` does. Don't skip `brain init` on an existing project just because `registry.yaml` is already there.

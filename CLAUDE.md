@@ -49,7 +49,7 @@ brain status /tmp/some-test-project
 
 **`src/brainiphy_cli/keychain.py`** — thin wrapper over `/usr/bin/security` (macOS Keychain generic passwords). `get_secret()` is the only thing connector scripts should call; `set_secret()` is for `brain secret set` itself. Secrets never touch `registry.yaml` or chat context — this boundary is intentional, don't add a code path that lets a secret value flow through an argument or a file brain writes.
 
-**`src/brainiphy_cli/picker.py`** — dependency-free interactive directory browser (`pick_project_dir()`), intended for `brain init` with no arguments. Currently **not wired into `cli.py`** — nothing imports it yet.
+**`src/brainiphy_cli/picker.py`** — dependency-free interactive directory browser (`pick_project_dir()`), used by `cmd_init` when `brain init` is run with no path. Starts at `~/Documents`, accepts a numbered pick / free-text filter / pasted path, and only creates the folder after an explicit confirmation. `cmd_init` calls it *only* when `picker.is_interactive()` (stdin **and** stdout are TTYs); piped or launchd-driven invocations keep the old behavior of defaulting to the cwd, so the argparse default for `project` is `None`, not `"."` — don't restore `"."` or the interactive path becomes unreachable.
 
 **`src/brainiphy_cli/launchd_template.plist`** — placeholder-substituted (`__PROJECT_SLUG__`, `__BRAIN_EXE__`, etc.) by `cmd_schedule` into `~/Library/LaunchAgents/com.graphify.sync.<slug>.plist`, then optionally loaded with `launchctl bootstrap`. Generated output, not meant to be hand-edited — change the template and regenerate instead.
 

@@ -30,6 +30,8 @@ Source lives in `src/brainiphy_cli/` (this directory, global — installed once,
 Commands:
 ```
 brain init [project]                          scaffold connectors/, .gitignore, .graphifyignore
+                                                  (no project + a TTY -> interactive folder picker;
+                                                   always pass the path explicitly when scripting)
 brain new-connector <project> <name> [--interval-minutes N]
                                                   copy the template to connectors/<name>/sync.py, register it
 brain sync [project] [--dry-run]                run due connectors, rebuild the graph if anything changed
