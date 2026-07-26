@@ -30,7 +30,7 @@ brain status /tmp/some-test-project
 
 ## Architecture
 
-**`src/brainiphy_cli/cli.py`** — argparse entry point (`brain` console script). Each subcommand (`init`, `new-connector`, `sync`, `connect-claude`, `schedule`, `secret set/get`, `status`) is a standalone `cmd_*` function; there's no shared command base class or plugin system to look for. User-facing print output is in Spanish — match that if adding output to existing commands.
+**`src/brainiphy_cli/cli.py`** — argparse entry point (`brain` console script). Each subcommand (`init`, `new-connector`, `sync`, `connect-claude`, `schedule`, `secret set/get`, `status`) is a standalone `cmd_*` function; there's no shared command base class or plugin system to look for. All user-facing output is in English (it was Spanish until the repo was translated — don't reintroduce Spanish strings).
 
 **`src/brainiphy_cli/sync.py`** — the orchestrator `brain sync` calls. Deliberately has no notion of "connector types": every connector is just an executable script conforming to a contract (see below), so adding support for a new kind of data source means writing a new `sync.py` in the target project, never extending this module. Key logic:
 - `load_registry()` reads `<project>/connectors/registry.yaml`.
@@ -48,6 +48,8 @@ brain status /tmp/some-test-project
 **`src/brainiphy_cli/frontmatter.py`** — `write_record()` / `slugify()` / `yaml_str()`. Produces the same Markdown+YAML-frontmatter shape graphify's own `graphify add` produces, including the same hostile-string escaping (mirrors graphify's `ingest.py _yaml_str`, since a connector might pipe in untrusted field values like a CRM record title). Any connector-generated file must go through this, not hand-rolled YAML.
 
 **`src/brainiphy_cli/keychain.py`** — thin wrapper over `/usr/bin/security` (macOS Keychain generic passwords). `get_secret()` is the only thing connector scripts should call; `set_secret()` is for `brain secret set` itself. Secrets never touch `registry.yaml` or chat context — this boundary is intentional, don't add a code path that lets a secret value flow through an argument or a file brain writes.
+
+**`src/brainiphy_cli/picker.py`** — dependency-free interactive directory browser (`pick_project_dir()`), intended for `brain init` with no arguments. Currently **not wired into `cli.py`** — nothing imports it yet.
 
 **`src/brainiphy_cli/launchd_template.plist`** — placeholder-substituted (`__PROJECT_SLUG__`, `__BRAIN_EXE__`, etc.) by `cmd_schedule` into `~/Library/LaunchAgents/com.graphify.sync.<slug>.plist`, then optionally loaded with `launchctl bootstrap`. Generated output, not meant to be hand-edited — change the template and regenerate instead.
 
