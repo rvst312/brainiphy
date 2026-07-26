@@ -32,6 +32,8 @@ Most "second brain" setups die at the integration step: every data source needs 
 - **Python 3.9+**
 - **[graphify](https://pypi.org/project/graphifyy/)** — `pip3 install --user graphifyy`
 
+`pyyaml` and `rich` are pulled in automatically by the install below.
+
 ## Installation
 
 ```bash
@@ -78,6 +80,8 @@ brain schedule ~/clients/acme --interval-minutes 15 --load  # keep it fresh
 
 ## Commands
 
+Output is rendered with [Rich](https://github.com/Textualize/rich): colored status icons, tables for `status` and `sync --dry-run`, spinners while connectors run. Color is dropped automatically when output isn't a terminal (and when `NO_COLOR` is set), so piping to a file or a log still gives clean text.
+
 ### `brain init [project]`
 
 Prepares a project to receive connectors.
@@ -93,21 +97,17 @@ Run it with no `project` in a terminal and it opens an interactive picker instea
 $ brain init
 
 Where do you want to create the brain?
+────────────────────────────────────────────────────────────
 Pick a number to enter a folder, or type/paste a path.
 
 📂 ~/Documents
-  1) Clients/
-  2) Projects/
-
-  n) create a new folder here
-  a) use this folder as-is
-  u) go up to ~
-  q) cancel
-
->
+ 1) Clients/       2) Estudios/     3) personal/
+ 4) Projects/      5) webs-online/
+   n new folder here   a use this one   u up   q cancel
+›
 ```
 
-It starts at `~/Documents`. A number enters that folder, `u` goes back up, `n` creates a new folder there, `a` picks the current one, and anything containing `/` (or starting with `~`) is treated as a path you typed or pasted. Free text filters the listing by name, so you don't have to count rows in a long list. Nothing is created on disk until you confirm.
+It starts at `~/Documents` and lays the folders out in a grid sized to your terminal. A number enters that folder, `u` goes back up, `n` creates a new folder there, `a` picks the current one, and anything containing `/` (or starting with `~`) is treated as a path you typed or pasted. Free text filters the listing by name, so you don't have to count rows in a long list. Nothing is created on disk until you confirm.
 
 When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defaults to `.` — the picker never blocks a script. Safe to re-run either way: it never overwrites an existing registry.
 

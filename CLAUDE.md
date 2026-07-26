@@ -16,7 +16,7 @@ Read `SKILL.md` first — it is the primary spec for both the CLI's behavior and
 /usr/local/opt/python@3.11/bin/python3.11 -m pip install --user -e ~/.claude/skills/brainiphy
 ```
 
-Editable install — required once so the `brain` binary exists on PATH; after that, edits to `src/brainiphy_cli/*.py` take effect immediately (no reinstall). Confirm the interpreter actually used with `head -1 $(which graphify)` — this machine has multiple Python 3 installs and `brain`/`graphify` must both resolve to the same one, or `brain sync`'s `find_graphify()` / `_find_exe()` PATH lookups can pick the wrong one.
+Editable install — required once so the `brain` binary exists on PATH; after that, edits to `src/brainiphy_cli/*.py` take effect immediately (no reinstall). Re-run it after touching `dependencies` in `pyproject.toml` (currently `pyyaml`, `rich`) — an editable install does not pick up new deps on its own, and a missing `rich` breaks every command, since `ui.py` imports it at module level. Confirm the interpreter actually used with `head -1 $(which graphify)` — this machine has multiple Python 3 installs and `brain`/`graphify` must both resolve to the same one, or `brain sync`'s `find_graphify()` / `_find_exe()` PATH lookups can pick the wrong one.
 
 No test suite exists in this repo currently. There is no lint/format config either — match existing style (plain argparse, dataclasses, `from __future__ import annotations`) rather than introducing a new tool.
 
@@ -31,6 +31,13 @@ brain status /tmp/some-test-project
 ## Architecture
 
 **`src/brainiphy_cli/cli.py`** — argparse entry point (`brain` console script). Each subcommand (`init`, `new-connector`, `sync`, `connect-claude`, `schedule`, `secret set/get`, `status`) is a standalone `cmd_*` function; there's no shared command base class or plugin system to look for. All user-facing output is in English (it was Spanish until the repo was translated — don't reintroduce Spanish strings).
+
+**`src/brainiphy_cli/ui.py`** — the single Rich `Console` pair (`ui.out` / `ui.err`) plus the icon helpers every other module prints through: `step/ok/info/warn/error/hint/header/table/working`. Rules worth keeping:
+- Messages are built as `rich.text.Text`, never markup strings, and `highlight=False` — connector names and paths come from user-written files and a stray `[` would otherwise be parsed as a markup tag. Use `ui.cell()` for table cells for the same reason.
+- `ui.error()` is the only helper that writes to stderr; keep failures there so `brain sync` stays pipeable.
+- Subprocess output (graphify, connector scripts) goes through `ui.raw()`, which disables markup/highlight and uses `soft_wrap` so tracebacks stay copy-pasteable.
+- `cmd_secret_get` deliberately uses a bare `print()` — the value is meant to be piped, so it must stay unstyled and alone on stdout.
+- Rich already drops color for non-TTY output and honors `NO_COLOR`; don't add a `--no-color` flag for it.
 
 **`src/brainiphy_cli/sync.py`** — the orchestrator `brain sync` calls. Deliberately has no notion of "connector types": every connector is just an executable script conforming to a contract (see below), so adding support for a new kind of data source means writing a new `sync.py` in the target project, never extending this module. Key logic:
 - `load_registry()` reads `<project>/connectors/registry.yaml`.
@@ -49,7 +56,7 @@ brain status /tmp/some-test-project
 
 **`src/brainiphy_cli/keychain.py`** — thin wrapper over `/usr/bin/security` (macOS Keychain generic passwords). `get_secret()` is the only thing connector scripts should call; `set_secret()` is for `brain secret set` itself. Secrets never touch `registry.yaml` or chat context — this boundary is intentional, don't add a code path that lets a secret value flow through an argument or a file brain writes.
 
-**`src/brainiphy_cli/picker.py`** — dependency-free interactive directory browser (`pick_project_dir()`), used by `cmd_init` when `brain init` is run with no path. Starts at `~/Documents`, accepts a numbered pick / free-text filter / pasted path, and only creates the folder after an explicit confirmation. `cmd_init` calls it *only* when `picker.is_interactive()` (stdin **and** stdout are TTYs); piped or launchd-driven invocations keep the old behavior of defaulting to the cwd, so the argparse default for `project` is `None`, not `"."` — don't restore `"."` or the interactive path becomes unreachable.
+**`src/brainiphy_cli/picker.py`** — Rich-rendered interactive directory browser (`pick_project_dir()`), used by `cmd_init` when `brain init` is run with no path. Starts at `~/Documents`, accepts a numbered pick / free-text filter / pasted path, and only creates the folder after an explicit confirmation. `cmd_init` calls it *only* when `picker.is_interactive()` (stdin **and** stdout are TTYs); piped or launchd-driven invocations keep the old behavior of defaulting to the cwd, so the argparse default for `project` is `None`, not `"."` — don't restore `"."` or the interactive path becomes unreachable.
 
 **`src/brainiphy_cli/launchd_template.plist`** — placeholder-substituted (`__PROJECT_SLUG__`, `__BRAIN_EXE__`, etc.) by `cmd_schedule` into `~/Library/LaunchAgents/com.graphify.sync.<slug>.plist`, then optionally loaded with `launchctl bootstrap`. Generated output, not meant to be hand-edited — change the template and regenerate instead.
 

@@ -7,7 +7,7 @@ name = "brainiphy"
 version = "0.1.0"
 description = "Bootstrap and maintain graphify knowledge-graph brains for a business, from zero data sources to a synced graph connected to Claude."
 requires-python = ">=3.9"
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "rich>=13"]
 # Table form, not the PEP 639 SPDX string: setuptools here is 69.x, which
 # only understands `license = "MIT"` from 77 onwards.
 license = { text = "MIT" }

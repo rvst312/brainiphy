@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from brainiphy_cli import ui
+
 
 @dataclass
 class SyncReport:
@@ -79,10 +81,11 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
     report = SyncReport()
 
     if not connectors:
-        print(f"[brain sync] 0 connectors registered in {project / 'connectors/registry.yaml'}")
+        ui.warn("0 connectors registered in", project / "connectors/registry.yaml")
         return report
 
     any_ran = False
+    dry_table = ui.table("connector", "interval", "state", "script") if dry_run else None
 
     for entry in connectors:
         name = entry["name"]
@@ -91,52 +94,60 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
         due = is_due(project, name, interval)
 
         if dry_run:
-            status = "due" if due else "not due"
-            exists = "ok" if script.exists() else "MISSING sync.py"
-            print(f"[brain sync] {name}: {status}, interval={interval}min, script={exists}")
+            dry_table.add_row(
+                ui.cell(name, "brain.path"),
+                ui.cell(f"{interval:g} min"),
+                ui.cell("would run", "brain.warn") if due else ui.cell("not due", "brain.info"),
+                ui.cell("ok", "brain.ok") if script.exists() else ui.cell("MISSING sync.py", "brain.err"),
+            )
             continue
 
         if not due:
             report.skipped.append(name)
             continue
         if not script.exists():
-            print(f"[brain sync] {name}: skipped, no script at {script}", file=sys.stderr)
+            ui.error(f"{name}: skipped, no script at", script)
             report.errors.append(f"{name}: missing {script}")
             continue
 
         out_dir = project / "raw" / name
         out_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[brain sync] running {name} -> {out_dir}")
-        result = subprocess.run(
-            [sys.executable, str(script), "--out", str(out_dir)],
-            capture_output=True,
-            text=True,
-        )
-        if result.stdout:
-            print(result.stdout.rstrip())
+        with ui.working(f"running {name} -> {out_dir}"):
+            result = subprocess.run(
+                [sys.executable, str(script), "--out", str(out_dir)],
+                capture_output=True,
+                text=True,
+            )
         if result.returncode != 0:
-            print(f"[brain sync] {name}: FAILED (exit {result.returncode})\n{result.stderr}", file=sys.stderr)
+            ui.error(f"{name}: failed (exit {result.returncode})")
+            ui.raw(result.stdout)
+            ui.raw(result.stderr, stderr=True)
             report.errors.append(f"{name}: exit {result.returncode}")
             continue
 
+        ui.ok(f"{name} ->", out_dir)
+        ui.raw(result.stdout)
         _mark_ran(project, name)
         report.ran.append(name)
         any_ran = True
 
     if dry_run:
+        ui.print_table(dry_table)
         return report
 
     if any_ran:
         graphify = find_graphify()
-        print(f"[brain sync] rebuilding graph: {graphify} update {project}")
-        result = subprocess.run([graphify, "update", str(project)], capture_output=True, text=True)
-        print(result.stdout.rstrip())
+        with ui.working(f"rebuilding graph: graphify update {project}"):
+            result = subprocess.run([graphify, "update", str(project)], capture_output=True, text=True)
+        ui.raw(result.stdout)
         if result.returncode != 0:
-            print(result.stderr, file=sys.stderr)
+            ui.raw(result.stderr, stderr=True)
+            ui.error("graphify update failed")
             report.errors.append("graphify update failed")
         else:
+            ui.ok("graph rebuilt")
             report.graph_rebuilt = True
-    else:
-        print("[brain sync] nothing due, graph left as-is")
+    elif not report.errors:
+        ui.info("nothing due, graph left as-is")
 
     return report

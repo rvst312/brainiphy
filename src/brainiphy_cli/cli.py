@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from brainiphy_cli import keychain, picker, sync as sync_mod
+from brainiphy_cli import keychain, picker, sync as sync_mod, ui
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -89,7 +89,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         else:
             chosen = picker.pick_project_dir()
             if chosen is None:
-                print("[init] cancelled", file=sys.stderr)
+                ui.error("init cancelled")
                 return 1
             project = chosen
     else:
@@ -98,32 +98,40 @@ def cmd_init(args: argparse.Namespace) -> int:
     connectors_dir = project / "connectors"
     (connectors_dir / "state").mkdir(parents=True, exist_ok=True)
 
+    ui.header("brain init", project)
+
     registry_path = connectors_dir / "registry.yaml"
     if registry_path.exists():
-        print(f"[init] {registry_path} already exists, leaving it alone")
+        ui.info("registry.yaml already exists, leaving it alone")
     else:
         registry_path.write_text(REGISTRY_HEADER + "\nconnectors: []\n", encoding="utf-8")
-        print(f"[init] created {registry_path}")
+        ui.ok("created", registry_path.relative_to(project))
 
     added = _append_ignore_entries(
         project / ".gitignore", GITIGNORE_ENTRIES, "# brainiphy: generated output, do not version"
     )
-    print(f"[init] .gitignore: {added} new entries" if added else "[init] .gitignore already covers everything, leaving it alone")
+    if added:
+        ui.ok(f".gitignore: {added} new {'entry' if added == 1 else 'entries'}")
+    else:
+        ui.info(".gitignore already covers everything")
 
     added = _append_ignore_entries(
         project / ".graphifyignore",
         GRAPHIFYIGNORE_ENTRIES,
         "# brainiphy: do not index connector scripts as source code",
     )
-    print(f"[init] .graphifyignore: {added} new entries" if added else "[init] .graphifyignore already covers everything, leaving it alone")
+    if added:
+        ui.ok(f".graphifyignore: {added} new {'entry' if added == 1 else 'entries'}")
+    else:
+        ui.info(".graphifyignore already covers everything")
 
     try:
-        graphify = _find_exe("graphify")
-        print(f"[init] graphify found: {graphify}")
+        ui.ok("graphify found:", _find_exe("graphify"))
     except FileNotFoundError:
-        print("[init] graphify is not installed. Install it with: pip3 install --user graphifyy", file=sys.stderr)
+        ui.warn("graphify is not installed")
+        ui.hint("install it with:", "pip3 install --user graphifyy")
 
-    print(f"[init] done. Next step: brain new-connector {project} <name>")
+    ui.hint("next step:", f"brain new-connector {ui.short_path(project)} <name>")
     return 0
 
 
@@ -148,37 +156,48 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
     script_path = connector_dir / "sync.py"
 
     if script_path.exists():
-        print(f"[new-connector] {script_path} already exists, not overwriting it", file=sys.stderr)
+        ui.error("already exists, not overwriting it:", script_path)
         return 1
+
+    ui.header("brain new-connector", f"{project}  ·  {name}")
 
     connector_dir.mkdir(parents=True, exist_ok=True)
     template = (TEMPLATE_DIR / "connector_template.py").read_text(encoding="utf-8")
     template = template.replace('SOURCE_SYSTEM = "REPLACE_ME"', f'SOURCE_SYSTEM = "{name}"')
     script_path.write_text(template, encoding="utf-8")
     script_path.chmod(0o755)
-    print(f"[new-connector] created {script_path}")
+    ui.ok("created", script_path.relative_to(project))
 
     registry_path = project / "connectors" / "registry.yaml"
     entries = _load_registry_entries(registry_path)
     if any(e.get("name") == name for e in entries):
-        print(f"[new-connector] {name} was already in registry.yaml, not duplicating it")
+        ui.info(f"{name} was already in registry.yaml, not duplicating it")
     else:
         entries.append({"name": name, "interval_minutes": args.interval_minutes})
         _write_registry_entries(registry_path, entries)
-        print(f"[new-connector] {name} added to {registry_path} (every {args.interval_minutes} min)")
+        ui.ok(f"registered {name} in registry.yaml, every {args.interval_minutes:g} min")
 
-    print(f"[new-connector] next step: edit {script_path} (fetch_records) and, if it needs a credential:")
-    print(f"  brain secret set graphify-{_slug(project.name)}-{name}")
+    ui.hint("fill in fetch_records() in:", str(script_path))
+    ui.hint("if it needs a credential:", f"brain secret set graphify-{_slug(project.name)}-{name}")
     return 0
 
 
 # ------------------------------------------------------------------ sync --
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    report = sync_mod.run(Path(args.project), dry_run=args.dry_run)
+    project = Path(args.project).resolve()
+    ui.header("brain sync" + (" (dry run)" if args.dry_run else ""), project)
+    report = sync_mod.run(project, dry_run=args.dry_run)
     if args.dry_run:
         return 0
-    print(f"[sync] ran={report.ran} skipped={report.skipped} errors={report.errors} graph_rebuilt={report.graph_rebuilt}")
+
+    summary = ui.table("", "", title=None)
+    summary.add_row(ui.cell("ran", "brain.info"), ui.cell(", ".join(report.ran) or "—", "brain.ok"))
+    summary.add_row(ui.cell("skipped", "brain.info"), ui.cell(", ".join(report.skipped) or "—"))
+    summary.add_row(ui.cell("errors", "brain.info"), ui.cell(", ".join(report.errors) or "—", "brain.err" if report.errors else ""))
+    summary.add_row(ui.cell("graph rebuilt", "brain.info"), ui.cell("yes" if report.graph_rebuilt else "no"))
+    ui.blank()
+    ui.print_table(summary)
     return 1 if report.errors else 0
 
 
@@ -187,23 +206,28 @@ def cmd_sync(args: argparse.Namespace) -> int:
 def cmd_connect_claude(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
 
-    result = subprocess.run(["graphify", "claude", "install"], cwd=project, capture_output=True, text=True)
-    print(result.stdout.rstrip())
+    ui.header("brain connect-claude", project)
+
+    with ui.working("graphify claude install"):
+        result = subprocess.run(["graphify", "claude", "install"], cwd=project, capture_output=True, text=True)
+    ui.raw(result.stdout)
     if result.returncode != 0:
-        print(result.stderr, file=sys.stderr)
+        ui.raw(result.stderr, stderr=True)
+        ui.error("graphify claude install failed")
         return 1
+    ui.ok("Claude Code wired up (CLAUDE.md + hooks)")
 
     if not (args.desktop or args.trust_desktop):
         return 0
 
     config_path = Path.home() / "Library/Application Support/Claude/claude_desktop_config.json"
     if not config_path.exists():
-        print(f"[connect-claude] {config_path} does not exist — is Claude Desktop installed?", file=sys.stderr)
+        ui.error("no Claude Desktop config — is it installed?", config_path)
         return 1
 
     backup_path = config_path.with_name(config_path.name + f".bak-{_timestamp()}")
     shutil.copy(config_path, backup_path)
-    print(f"[connect-claude] backup saved to {backup_path}")
+    ui.ok("backup saved to", backup_path)
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
 
@@ -215,19 +239,19 @@ def cmd_connect_claude(args: argparse.Namespace) -> int:
             "command": graphify_mcp,
             "args": ["--graph", str(project / "graphify-out" / "graph.json")],
         }
-        print(f"[connect-claude] MCP server '{server_name}' registered -> {project / 'graphify-out/graph.json'}")
+        ui.ok(f"MCP server '{server_name}' registered ->", project / "graphify-out/graph.json")
 
     if args.trust_desktop:
         prefs = data.setdefault("preferences", {})
         trusted = prefs.setdefault("localAgentModeTrustedFolders", [])
         if str(project) not in trusted:
             trusted.append(str(project))
-            print(f"[connect-claude] {project} added to localAgentModeTrustedFolders (existing entries preserved)")
+            ui.ok("added to localAgentModeTrustedFolders (existing entries preserved):", project)
         else:
-            print(f"[connect-claude] {project} was already in localAgentModeTrustedFolders")
+            ui.info("already in localAgentModeTrustedFolders")
 
     config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    print("[connect-claude] restart Claude Desktop to apply the changes")
+    ui.hint("restart Claude Desktop to apply the changes")
     return 0
 
 
@@ -244,8 +268,10 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     registry_path = project / "connectors" / "registry.yaml"
     entries = _load_registry_entries(registry_path)
     if not entries:
-        print("[schedule] no connectors registered — nothing worth scheduling yet", file=sys.stderr)
+        ui.error("no connectors registered — nothing worth scheduling yet")
         return 1
+
+    ui.header("brain schedule", project)
 
     slug = args.slug or _slug(project.name)
     brain_exe = _find_exe("brain")
@@ -264,18 +290,18 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     plist_path = Path.home() / "Library/LaunchAgents" / f"com.graphify.sync.{slug}.plist"
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(plist_text, encoding="utf-8")
-    print(f"[schedule] wrote {plist_path}")
+    ui.ok("wrote", plist_path)
 
     load_cmd = ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)]
     if args.load:
         result = subprocess.run(load_cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            print(result.stderr, file=sys.stderr)
+            ui.raw(result.stderr, stderr=True)
+            ui.error("launchctl bootstrap failed")
             return 1
-        print(f"[schedule] loaded with launchctl (every {args.interval_minutes} min)")
+        ui.ok(f"loaded with launchctl, runs every {args.interval_minutes:g} min")
     else:
-        print("[schedule] not loaded yet. To activate it:")
-        print(f"  {' '.join(load_cmd)}")
+        ui.hint("not loaded yet — to activate it:", " ".join(load_cmd))
     return 0
 
 
@@ -284,18 +310,20 @@ def cmd_schedule(args: argparse.Namespace) -> int:
 def cmd_secret_set(args: argparse.Namespace) -> int:
     value = getpass.getpass(f"Value for {args.item} (input hidden): ")
     if not value:
-        print("[secret] empty value, cancelled", file=sys.stderr)
+        ui.error("empty value, cancelled")
         return 1
     keychain.set_secret(args.item, value)
-    print(f"[secret] stored {args.item} in the Keychain")
+    ui.ok("stored in the Keychain:", args.item)
     return 0
 
 
 def cmd_secret_get(args: argparse.Namespace) -> int:
     try:
+        # Plain print, not ui: the value is meant to be piped/captured, so it
+        # must stay unstyled and alone on stdout.
         print(keychain.get_secret(args.item))
     except keychain.SecretNotFoundError as exc:
-        print(exc, file=sys.stderr)
+        ui.error(str(exc))
         return 1
     return 0
 
@@ -305,26 +333,39 @@ def cmd_secret_get(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     entries = _load_registry_entries(project / "connectors" / "registry.yaml")
-    print(f"Project: {project}")
-    print(f"Registered connectors: {len(entries)}")
-    for entry in entries:
-        name = entry["name"]
-        interval = float(entry.get("interval_minutes", 60))
-        due = sync_mod.is_due(project, name, interval)
-        script_ok = (project / "connectors" / name / "sync.py").exists()
-        print(f"  - {name}: every {interval}min, {'due now' if due else 'up to date'}, script={'ok' if script_ok else 'MISSING'}")
+    ui.header("brain status", project)
 
+    if not entries:
+        ui.info("no connectors registered yet")
+        ui.hint("add one with:", f"brain new-connector {ui.short_path(project)} <name>")
+    else:
+        table = ui.table("connector", "interval", "state", "script")
+        for entry in entries:
+            name = entry["name"]
+            interval = float(entry.get("interval_minutes", 60))
+            due = sync_mod.is_due(project, name, interval)
+            script_ok = (project / "connectors" / name / "sync.py").exists()
+            table.add_row(
+                ui.cell(name, "brain.path"),
+                ui.cell(f"{interval:g} min"),
+                ui.cell("due now", "brain.warn") if due else ui.cell("up to date", "brain.ok"),
+                ui.cell("ok", "brain.ok") if script_ok else ui.cell("MISSING", "brain.err"),
+            )
+        ui.print_table(table)
+
+    ui.blank()
     graph_json = project / "graphify-out" / "graph.json"
     if graph_json.exists():
         try:
             data = json.loads(graph_json.read_text(encoding="utf-8"))
             nodes = len(data.get("nodes", []))
             edges = len(data.get("links", data.get("edges", [])))
-            print(f"Graph: {nodes} nodes, {edges} edges ({graph_json})")
+            ui.ok(f"graph: {nodes} nodes, {edges} edges", graph_json)
         except json.JSONDecodeError:
-            print(f"Graph: {graph_json} exists but could not be parsed")
+            ui.warn("graph exists but could not be parsed:", graph_json)
     else:
-        print("Graph: not built yet (run: graphify update .)")
+        ui.warn("graph not built yet")
+        ui.hint("build it with:", f"graphify update {ui.short_path(project)}")
     return 0
 
 
