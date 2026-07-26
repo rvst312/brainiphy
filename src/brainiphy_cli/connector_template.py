@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Template for a brainiphy connector.
 
-`cerebro new-connector <project> <name>` copies this file to
+`brain new-connector <project> <name>` copies this file to
 <project>/connectors/<name>/sync.py and pre-fills SOURCE_SYSTEM. Adapt
 fetch_records() to the real source — nothing else here should normally
 need to change.
 
-Contract (what `cerebro sync` expects from any connector script):
+Contract (what `brain sync` expects from any connector script):
   - Accepts `--out <dir>` and writes its output there as normalized
     Markdown files (see brainiphy_cli.frontmatter.write_record).
   - File names are stable per remote record ID (write_record handles this)
@@ -14,7 +14,7 @@ Contract (what `cerebro sync` expects from any connector script):
   - Exits 0 on success, non-zero on failure, with a human-readable summary
     printed to stdout.
   - Reads credentials only via brainiphy_cli.keychain.get_secret(<item>) —
-    set them once with `cerebro secret set <item>`. Never hardcode a token,
+    set them once with `brain secret set <item>`. Never hardcode a token,
     never accept one as a CLI argument (shell history / process listings /
     launchd logs would all leak it).
 """

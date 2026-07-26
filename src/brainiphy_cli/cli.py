@@ -1,4 +1,4 @@
-"""cerebro — CLI for bootstrapping and maintaining graphify knowledge-graph
+"""brain — CLI for bootstrapping and maintaining graphify knowledge-graph
 brains for a business, from zero data sources to a synced graph connected
 to Claude Code and Claude Desktop.
 """
@@ -22,10 +22,10 @@ from brainiphy_cli import keychain, sync as sync_mod
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
 REGISTRY_HEADER = """\
-# Registro de conectores para este cerebro. Formato consumido por `cerebro sync`.
+# Registro de conectores para este cerebro. Formato consumido por `brain sync`.
 #
 # Cada entrada requiere un script en connectors/<name>/sync.py — usa
-# `cerebro new-connector <project> <name>` para crearlo desde la plantilla.
+# `brain new-connector <project> <name>` para crearlo desde la plantilla.
 """
 
 GITIGNORE_ENTRIES = [
@@ -110,7 +110,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     except FileNotFoundError:
         print("[init] graphify no está instalado. Instálalo con: pip3 install --user graphifyy", file=sys.stderr)
 
-    print(f"[init] listo. Siguiente paso: cerebro new-connector {project} <nombre>")
+    print(f"[init] listo. Siguiente paso: brain new-connector {project} <nombre>")
     return 0
 
 
@@ -155,7 +155,7 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
         print(f"[new-connector] {name} añadido a {registry_path} (cada {args.interval_minutes} min)")
 
     print(f"[new-connector] siguiente paso: edita {script_path} (fetch_records) y, si hace falta credencial:")
-    print(f"  cerebro secret set graphify-{_slug(project.name)}-{name}")
+    print(f"  brain secret set graphify-{_slug(project.name)}-{name}")
     return 0
 
 
@@ -235,14 +235,14 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         return 1
 
     slug = args.slug or _slug(project.name)
-    cerebro_exe = _find_exe("cerebro")
+    brain_exe = _find_exe("brain")
     log_dir = project / "connectors" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     plist_text = (TEMPLATE_DIR / "launchd_template.plist").read_text(encoding="utf-8")
     plist_text = (
         plist_text.replace("__PROJECT_SLUG__", slug)
-        .replace("__CEREBRO_EXE__", cerebro_exe)
+        .replace("__BRAIN_EXE__", brain_exe)
         .replace("__PROJECT_PATH__", str(project))
         .replace("__INTERVAL_SECONDS__", str(int(args.interval_minutes * 60)))
         .replace("__LOG_DIR__", str(log_dir))
@@ -318,7 +318,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------ main --
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="cerebro", description=__doc__)
+    parser = argparse.ArgumentParser(prog="brain", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("init", help="Prepara connectors/ y .gitignore en un proyecto")
@@ -342,7 +342,7 @@ def main() -> int:
     p.add_argument("--trust-desktop", action="store_true", help="Añade el proyecto a localAgentModeTrustedFolders (aditivo)")
     p.set_defaults(func=cmd_connect_claude)
 
-    p = sub.add_parser("schedule", help="Genera e instala un LaunchAgent para `cerebro sync` periódico")
+    p = sub.add_parser("schedule", help="Genera e instala un LaunchAgent para `brain sync` periódico")
     p.add_argument("project", nargs="?", default=".")
     p.add_argument("--interval-minutes", type=float, default=15)
     p.add_argument("--slug", default=None)

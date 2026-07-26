@@ -79,7 +79,7 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
     report = SyncReport()
 
     if not connectors:
-        print(f"[cerebro sync] 0 connectors registered in {project / 'connectors/registry.yaml'}")
+        print(f"[brain sync] 0 connectors registered in {project / 'connectors/registry.yaml'}")
         return report
 
     any_ran = False
@@ -93,20 +93,20 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
         if dry_run:
             status = "due" if due else "not due"
             exists = "ok" if script.exists() else "MISSING sync.py"
-            print(f"[cerebro sync] {name}: {status}, interval={interval}min, script={exists}")
+            print(f"[brain sync] {name}: {status}, interval={interval}min, script={exists}")
             continue
 
         if not due:
             report.skipped.append(name)
             continue
         if not script.exists():
-            print(f"[cerebro sync] {name}: skipped, no script at {script}", file=sys.stderr)
+            print(f"[brain sync] {name}: skipped, no script at {script}", file=sys.stderr)
             report.errors.append(f"{name}: missing {script}")
             continue
 
         out_dir = project / "raw" / name
         out_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[cerebro sync] running {name} -> {out_dir}")
+        print(f"[brain sync] running {name} -> {out_dir}")
         result = subprocess.run(
             [sys.executable, str(script), "--out", str(out_dir)],
             capture_output=True,
@@ -115,7 +115,7 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
         if result.stdout:
             print(result.stdout.rstrip())
         if result.returncode != 0:
-            print(f"[cerebro sync] {name}: FAILED (exit {result.returncode})\n{result.stderr}", file=sys.stderr)
+            print(f"[brain sync] {name}: FAILED (exit {result.returncode})\n{result.stderr}", file=sys.stderr)
             report.errors.append(f"{name}: exit {result.returncode}")
             continue
 
@@ -128,7 +128,7 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
 
     if any_ran:
         graphify = find_graphify()
-        print(f"[cerebro sync] rebuilding graph: {graphify} update {project}")
+        print(f"[brain sync] rebuilding graph: {graphify} update {project}")
         result = subprocess.run([graphify, "update", str(project)], capture_output=True, text=True)
         print(result.stdout.rstrip())
         if result.returncode != 0:
@@ -137,6 +137,6 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
         else:
             report.graph_rebuilt = True
     else:
-        print("[cerebro sync] nothing due, graph left as-is")
+        print("[brain sync] nothing due, graph left as-is")
 
     return report
