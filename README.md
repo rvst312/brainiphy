@@ -1,18 +1,18 @@
-# cerebro-empresarial
+# brainiphy
 
 CLI (`cerebro`) para inicializar y mantener "cerebros" (grafos de conocimiento vía [graphify](https://pypi.org/project/graphifyy/)) para un negocio o cliente: desde cero fuentes de datos hasta un grafo sincronizado y conectado a Claude Code / Claude Desktop.
 
-Este repo es también el código fuente del Skill `cerebro-empresarial` (ver `SKILL.md`) — está enlazado como symlink en `~/.claude/skills/cerebro-empresarial`.
+Este repo es también el código fuente del Skill `brainiphy` (ver `SKILL.md`) — está enlazado como symlink en `~/.claude/skills/brainiphy`.
 
 ## Instalación
 
 Requiere Python 3.9+. En esta máquina, usar explícitamente el intérprete donde vive `graphify` (hay varios Python 3 instalados):
 
 ```bash
-/usr/local/opt/python@3.11/bin/python3.11 -m pip install --user -e ~/.claude/skills/cerebro-empresarial
+/usr/local/opt/python@3.11/bin/python3.11 -m pip install --user -e ~/.claude/skills/brainiphy
 ```
 
-Instalación editable: los cambios en `src/cerebro_cli/*.py` se aplican de inmediato, sin reinstalar. El binario `cerebro` queda junto a `graphify` (mismo bin dir de `--user`). Si no aparece en el PATH:
+Instalación editable: los cambios en `src/brainiphy_cli/*.py` se aplican de inmediato, sin reinstalar. El binario `cerebro` queda junto a `graphify` (mismo bin dir de `--user`). Si no aparece en el PATH:
 
 ```bash
 python3.11 -c "import site,pathlib; print(pathlib.Path(site.getuserbase())/'bin')"

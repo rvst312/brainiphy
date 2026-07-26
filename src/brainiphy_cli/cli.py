@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from cerebro_cli import keychain, sync as sync_mod
+from brainiphy_cli import keychain, sync as sync_mod
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -93,14 +93,14 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"[init] creado {registry_path}")
 
     added = _append_ignore_entries(
-        project / ".gitignore", GITIGNORE_ENTRIES, "# cerebro-empresarial: salidas generadas, no versionar"
+        project / ".gitignore", GITIGNORE_ENTRIES, "# brainiphy: salidas generadas, no versionar"
     )
     print(f"[init] .gitignore: {added} entradas nuevas" if added else "[init] .gitignore ya cubre todo, no lo toco")
 
     added = _append_ignore_entries(
         project / ".graphifyignore",
         GRAPHIFYIGNORE_ENTRIES,
-        "# cerebro-empresarial: no indexar los scripts de conectores como codigo fuente",
+        "# brainiphy: no indexar los scripts de conectores como codigo fuente",
     )
     print(f"[init] .graphifyignore: {added} entradas nuevas" if added else "[init] .graphifyignore ya cubre todo, no lo toco")
 

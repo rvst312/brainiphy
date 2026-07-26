@@ -1,5 +1,5 @@
 #!/usr/local/opt/python@3.11/bin/python3.11
-"""Credential storage for cerebro-empresarial connectors, backed by the macOS Keychain.
+"""Credential storage for brainiphy connectors, backed by the macOS Keychain.
 
 Tokens never touch disk in plain text and never pass through a chat/agent context.
 The user (a human) registers each credential once, out of band:

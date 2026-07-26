@@ -3,17 +3,17 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cerebro-empresarial"
+name = "brainiphy"
 version = "0.1.0"
 description = "Bootstrap and maintain graphify knowledge-graph brains for a business, from zero data sources to a synced graph connected to Claude."
 requires-python = ">=3.9"
 dependencies = ["pyyaml"]
 
 [project.scripts]
-cerebro = "cerebro_cli.cli:main"
+cerebro = "brainiphy_cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-cerebro_cli = ["launchd_template.plist"]
+brainiphy_cli = ["launchd_template.plist"]
