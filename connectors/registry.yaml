@@ -1,0 +1,6 @@
+# Registro de conectores para este cerebro. Formato consumido por `brain sync`.
+#
+# Cada entrada requiere un script en connectors/<name>/sync.py — usa
+# `brain new-connector <project> <name>` para crearlo desde la plantilla.
+
+connectors: []

@@ -4,3 +4,10 @@ __pycache__/
 build/
 dist/
 .venv/
+
+# brainiphy: salidas generadas, no versionar
+connectors/state/
+connectors/logs/
+mirrors/
+raw/
+graphify-out/

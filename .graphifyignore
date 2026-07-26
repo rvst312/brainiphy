@@ -1,0 +1,3 @@
+
+# brainiphy: no indexar los scripts de conectores como codigo fuente
+connectors/

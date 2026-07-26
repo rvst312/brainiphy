@@ -137,3 +137,7 @@ brain schedule ~/clientes/acme --interval-minutes 15 --load
 ```
 
 Ver `SKILL.md` para el playbook completo (incluye cómo decidir la estrategia de conexión según el tipo de fuente: carpeta local, URL pública, conector MCP existente, o API/CRM a medida) y las notas de seguridad.
+
+## Licencia
+
+MIT — ver [`LICENSE`](LICENSE). Copyright (c) 2026 FrontieraLabs.
