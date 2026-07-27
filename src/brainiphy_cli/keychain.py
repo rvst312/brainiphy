@@ -1,4 +1,4 @@
-#!/usr/local/opt/python@3.11/bin/python3.11
+#!/usr/bin/env python3
 """Credential storage for brainiphy connectors, backed by the macOS Keychain.
 
 Tokens never touch disk in plain text and never pass through a chat/agent context.
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) != 2:
-        print("usage: secrets.py <keychain-item-name>", file=sys.stderr)
+        print("usage: keychain.py <keychain-item-name>", file=sys.stderr)
         sys.exit(2)
     try:
         print(get_secret(sys.argv[1]))
