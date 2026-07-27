@@ -11,10 +11,9 @@ import os
 import sys
 from pathlib import Path
 
-from rich.prompt import Confirm, Prompt
 from rich.text import Text
 
-from brainiphy_cli import ui
+from brainiphy_cli import prompt, ui
 
 # Width per grid cell before the listing wraps into fewer columns.
 _MIN_CELL_WIDTH = 26
@@ -44,23 +43,15 @@ def _expand(text: str) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(text.strip()))).resolve()
 
 
-def _ask(prompt: str, suffix: str = ": ") -> str | None:
+def _ask(question: str, suffix: str = ": ") -> str | None:
     """Read one line; None if the user bails out with Ctrl-C / Ctrl-D."""
-    asker = Prompt(Text(prompt, style="brain.step"), console=ui.out)
-    asker.prompt_suffix = suffix
-    try:
-        return asker().strip()
-    except (EOFError, KeyboardInterrupt):
-        ui.blank()
-        return None
+    return prompt.ask(question, suffix=suffix)
 
 
-def _confirm(prompt: str) -> bool:
-    try:
-        return Confirm.ask(Text(prompt, style="brain.step"), console=ui.out, default=True)
-    except (EOFError, KeyboardInterrupt):
-        ui.blank()
-        return False
+def _confirm(question: str) -> bool:
+    # Cancelling a confirmation means "no" here, not "abort the picker" — the
+    # browser loop just re-renders and lets you pick something else.
+    return bool(prompt.confirm(question))
 
 
 def _looks_like_path(text: str) -> bool:
