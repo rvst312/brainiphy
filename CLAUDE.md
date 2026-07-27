@@ -24,13 +24,31 @@ To exercise a change manually, run the CLI against a scratch directory:
 ```
 brain init /tmp/some-test-project
 brain new-connector /tmp/some-test-project demo --interval-minutes 5
+brain new-connector /tmp/some-test-project docs --mirror /tmp/some-source-folder
 brain sync /tmp/some-test-project --dry-run
+brain guide /tmp/some-test-project
 brain status /tmp/some-test-project
 ```
 
+`brain new` can't be exercised that way — it refuses without a TTY, and piping answers into it through
+`script -q /dev/null` doesn't work either (the pty eats stdin). Drive `wizard.run()` from a Python snippet
+that replaces `picker.is_interactive` and the four `prompt.*` functions with scripted answers instead; that
+covers the whole flow including the real subprocess calls.
+
 ## Architecture
 
-**`src/brainiphy_cli/cli.py`** — argparse entry point (`brain` console script). Each subcommand (`init`, `new-connector`, `sync`, `connect-claude`, `schedule`, `secret set/get`, `status`) is a standalone `cmd_*` function; there's no shared command base class or plugin system to look for. All user-facing output is in English (it was Spanish until the repo was translated — don't reintroduce Spanish strings).
+**`src/brainiphy_cli/cli.py`** — argparse entry point (`brain` console script). Each subcommand (`new`, `guide`, `init`, `new-connector`, `sync`, `connect-claude`, `schedule`, `secret set/get`, `status`) is a standalone `cmd_*` function; there's no shared command base class or plugin system to look for. Keep it as argparse plumbing only — the actual work belongs in `project.py`/`sync.py`/`wizard.py`, so the guided flow and the individual commands can't drift apart. All user-facing output is in English (it was Spanish until the repo was translated — don't reintroduce Spanish strings).
+
+**`src/brainiphy_cli/steps.py`** — the machine-readable version of the playbook `SKILL.md` describes in prose: seven ordered `Step`s, and `inspect(project)` which resolves each one against what's on disk. `brain guide` renders it, `brain status` uses it for its next-step line, `brain new` walks it. **If the process changes, it changes here and in SKILL.md together** — this is the copy a user actually sees. Notes:
+- `render()` lives here rather than in cli.py so wizard.py can print the checklist without cli.py and wizard.py importing each other.
+- A step's `done` covers both `DONE` and `SKIP` (not applicable, e.g. "implement the connectors" on a brain that only mirrors folders) — `SKIP` renders as a dash, and must not block the next-step pointer.
+- Detection is read-only and cheap; it runs on every `brain status`. Don't add subprocess calls to it.
+
+**`src/brainiphy_cli/wizard.py`** — `brain new`. Calls the same `project.py` functions the individual commands do; it adds ordering, explanation and the "generate what we can" logic, never its own copy of an operation. Bails out on Ctrl-C via the `Cancelled` exception rather than checking a return value at every prompt. Refuses to run when `picker.is_interactive()` is false — an agent or a script must use the individual commands.
+
+**`src/brainiphy_cli/project.py`** — every operation performed *on a target project*: `scaffold()`, `create_connector()`, `connect_claude()`, `schedule()`, plus the registry read/write helpers and `find_exe()`. Both cli.py and wizard.py call these. Each prints its own progress through `ui` and returns a plain bool/path; exit codes are cli.py's job.
+
+**`src/brainiphy_cli/prompt.py`** — `ask` / `confirm` / `choose` / `ask_path`, on the same Rich console as `ui` (a prompt drawn on a different console doesn't line up with the output around it). Every one returns `None` when the user hits Ctrl-C/Ctrl-D, so cancellation is an ordinary value instead of an exception at each call site. `ui.py` stays output-only.
 
 **`src/brainiphy_cli/ui.py`** — the single Rich `Console` pair (`ui.out` / `ui.err`) plus the icon helpers every other module prints through: `step/ok/info/warn/error/hint/header/table/working`. Rules worth keeping:
 - Messages are built as `rich.text.Text`, never markup strings, and `highlight=False` — connector names and paths come from user-written files and a stray `[` would otherwise be parsed as a markup tag. Use `ui.cell()` for table cells for the same reason.
@@ -42,8 +60,11 @@ brain status /tmp/some-test-project
 **`src/brainiphy_cli/sync.py`** — the orchestrator `brain sync` calls. Deliberately has no notion of "connector types": every connector is just an executable script conforming to a contract (see below), so adding support for a new kind of data source means writing a new `sync.py` in the target project, never extending this module. Key logic:
 - `load_registry()` reads `<project>/connectors/registry.yaml`.
 - `is_due()` / `_mark_ran()` track last-run timestamps per connector in `<project>/connectors/state/<name>.json` — this is how polling intervals are enforced across separate `brain sync` invocations (e.g. from a LaunchAgent).
-- `run()` shells out to each due connector's `sync.py --out <project>/raw/<name>/`, then calls `graphify update <project>` once at the end if anything actually ran (not on every invocation — avoids needless rebuilds).
+- `run()` shells out to each due connector's `sync.py --out <project>/raw/<name>/`, then calls `build_graph()` once at the end if anything actually ran or `full=True` (not on every invocation — avoids needless rebuilds).
+- `build_graph()` picks between two graphify commands that are **not** interchangeable: `graphify extract` (full pass, the only one that indexes documents, needs an LLM backend) on the first build and on `--full`, `graphify update` (code-only local AST, no key, a silent no-op on a document corpus) after that. It always passes `--no-gitignore` — graphify honors `.gitignore`, which lists `raw/`, so without the flag it skips the whole corpus and reports an empty project. It also detects the "no LLM API key" failure and prints the two ways out (export a key, or run `/graphify` inside Claude Code) instead of a bare non-zero exit.
 - `find_graphify()` resolves the `graphify` binary via PATH then falls back to the current interpreter's `--user` site bin dir.
+
+**`src/brainiphy_cli/mirror_template.py`** — the second connector template, copied by `create_connector(..., mirror=<folder>)`. Unlike `connector_template.py` it is complete: an `rsync -a --delete` of a local folder into `--out`, with `MIRROR_SOURCE` substituted as a `repr()`'d literal. Mirroring rather than symlinking is forced by graphify (`follow_symlinks=False`, no CLI flag); `--delete` is what makes re-runs idempotent instead of leaving stale nodes behind.
 
 **`src/brainiphy_cli/connector_template.py`** — copied verbatim by `cmd_new_connector` into `<project>/connectors/<name>/sync.py` (with `SOURCE_SYSTEM` pre-filled). This is the contract every connector script must satisfy:
 - Accept `--out <dir>`, write normalized Markdown+frontmatter via `frontmatter.write_record()`.
@@ -72,7 +93,7 @@ brain status /tmp/some-test-project
 <project>/.graphifyignore                # must list connectors/ — otherwise graphify's AST extractor
                                           # indexes the connector scripts themselves as source code
 ```
-`.gitignore` vs `.graphifyignore` serve different purposes here: gitignore entries alone do **not** stop graphify from scanning a path, only `.graphifyignore` does (its own gitignore-syntax-compatible parser). Don't assume adding something to one covers the other.
+`.gitignore` vs `.graphifyignore` serve different purposes here, and they interact: `.graphifyignore` is the one graphify always obeys (its own gitignore-syntax-compatible parser) and is what keeps `connectors/` out of the index. But graphify also honors `.gitignore` unless `--no-gitignore` is passed — and `.gitignore` lists `raw/`, so any graphify call over a brain without that flag finds nothing at all. Verified empirically: `graphify extract` on a scaffolded project reports "found 0 code, 0 docs" without the flag and finds the corpus with it.
 
 ## Key constraints worth knowing before changing behavior
 

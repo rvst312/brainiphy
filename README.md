@@ -69,11 +69,49 @@ See [`SKILL.md`](SKILL.md) for the playbook Claude follows.
 ## Quick start
 
 ```bash
+brain new ~/clients/acme
+```
+
+That's the whole thing. `brain new` walks the seven steps of building a brain, explains what each one is for,
+and generates everything it can — point it at a folder on your Mac and the connector is written, registered and
+running before you see the next question. Everything it does is optional and re-runnable: run it again on an
+existing brain and it picks up where you left off.
+
+Lost track of where a brain stands? `brain guide` reports it:
+
+```
+$ brain guide ~/clients/acme
+
+4/7 done   ✓ done  ▸ next  ○ pending  – n/a
+
+ ✓ 1  Install graphify
+ ✓ 2  Scaffold the project
+ ✓ 3  Add data sources
+ ▸ 4  Implement the custom connectors
+       still template-only: hubspot
+       fill in fetch_records() for anything brain could not generate on its own
+       $EDITOR ~/clients/acme/connectors/hubspot/sync.py
+ ✓ 5  Run the first sync
+ ○ 6  Connect it to Claude
+       not connected yet
+       brain connect-claude ~/clients/acme --desktop --trust-desktop
+ ○ 7  Keep it in sync
+       not scheduled — sync is manual for now
+       brain schedule ~/clients/acme --interval-minutes 15 --load
+
+↳ next step:
+    $EDITOR ~/clients/acme/connectors/hubspot/sync.py
+```
+
+Every step is also a command you can run on its own, in any order:
+
+```bash
 brain init ~/clients/acme                                   # scaffold the project
-brain new-connector ~/clients/acme hubspot --interval-minutes 30
+brain new-connector ~/clients/acme docs --mirror ~/Dropbox/acme   # ready to run, no code
+brain new-connector ~/clients/acme hubspot --interval-minutes 30  # needs fetch_records()
 brain secret set graphify-acme-hubspot                      # prompts, hidden input
 $EDITOR ~/clients/acme/connectors/hubspot/sync.py           # implement fetch_records()
-brain sync ~/clients/acme                                   # first build
+brain sync ~/clients/acme --full                            # first build
 brain connect-claude ~/clients/acme --desktop --trust-desktop
 brain schedule ~/clients/acme --interval-minutes 15 --load  # keep it fresh
 ```
@@ -81,6 +119,34 @@ brain schedule ~/clients/acme --interval-minutes 15 --load  # keep it fresh
 ## Commands
 
 Output is rendered with [Rich](https://github.com/Textualize/rich): colored status icons, tables for `status` and `sync --dry-run`, spinners while connectors run. Color is dropped automatically when output isn't a terminal (and when `NO_COLOR` is set), so piping to a file or a log still gives clean text.
+
+### `brain new [project]`
+
+The guided setup. Seven steps, each explained as it happens, each skippable:
+
+1. **Where the brain lives** — the interactive folder picker, or the path you passed
+2. **graphify** — checks it's installed, offers to install it
+3. **Scaffolding** — `registry.yaml`, `.gitignore`, `.graphifyignore`
+4. **Sources** — add as many as you like, in a loop:
+   - *a folder on this Mac* → generates a complete rsync connector, nothing to write
+   - *a public URL* → runs `graphify add` for you
+   - *an API, CRM, anything else* → generates the connector template, and offers to store its credential in the Keychain right away
+5. **First build** — runs the connectors and indexes everything
+6. **Claude** — Claude Code, and optionally a Desktop MCP server
+7. **Schedule** — the LaunchAgent that keeps it fresh
+
+It prints the `brain guide` checklist on the way out, so anything it couldn't do for you (a `fetch_records()` to
+implement, a step you skipped) is spelled out with the command to finish it.
+
+Needs a terminal — it asks questions. In a script, use the individual commands.
+
+### `brain guide [project] [--verbose]`
+
+Prints those same seven steps and works out from the project on disk which are already done, what's missing from
+the pending ones, and the exact next command to run. Read-only and safe to run anywhere — including from an
+agent that needs to know where a brain stands without guessing.
+
+`--verbose` also shows the details of the steps already completed.
 
 ### `brain init [project]`
 
@@ -112,27 +178,45 @@ It starts at `~/Documents` and lays the folders out in a grid sized to your term
 When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defaults to `.` — the picker never blocks a script. Safe to re-run either way: it never overwrites an existing registry.
 
 > [!IMPORTANT]
-> `.gitignore` and `.graphifyignore` are **not** interchangeable. Gitignore entries alone do not stop graphify from scanning a path; only `.graphifyignore` does. Don't skip `brain init` on an existing project just because `registry.yaml` is already there.
+> `.gitignore` and `.graphifyignore` are **not** interchangeable, and they overlap in a way that bites. `.graphifyignore` is the one graphify always obeys — it's what keeps your connector *scripts* from being indexed as content. But graphify also honors `.gitignore`, where `brain init` puts `raw/` so mirrored content never gets committed. That's why every graphify call `brain sync` makes passes `--no-gitignore`: without it, graphify skips the entire corpus and reports an empty project. Don't skip `brain init` on an existing project just because `registry.yaml` is already there.
 
-### `brain new-connector <project> <name> [--interval-minutes N]`
+### `brain new-connector <project> <name> [--interval-minutes N] [--mirror FOLDER]`
 
-Copies the connector template to `connectors/<name>/sync.py` and registers it in `registry.yaml` with the given interval (default: 60).
+Writes `connectors/<name>/sync.py` and registers it in `registry.yaml` with the given interval (default: 60).
 
 ```bash
 brain new-connector ~/clients/acme hubspot --interval-minutes 30
+brain new-connector ~/clients/acme docs --mirror ~/Dropbox/acme
 ```
 
-Then implement `fetch_records()` in the generated script and, if the source needs credentials, register them with `brain secret set`. Existing scripts are never overwritten.
+| Flag | Effect |
+| --- | --- |
+| *(none)* | The generic template. Implement `fetch_records()`, then register any credential with `brain secret set`. |
+| `--mirror FOLDER` | A **complete** connector that mirrors a local folder with `rsync -a --delete`. Nothing to implement — it works on the next `brain sync`. |
 
-### `brain sync [project] [--dry-run]`
+Existing scripts are never overwritten.
 
-Runs every connector whose interval has elapsed (tracked in `connectors/state/<name>.json`), then rebuilds the graph with `graphify update` — but only if at least one connector actually ran.
+Why mirror rather than symlink: graphify doesn't follow symlinks, so a linked folder is simply never indexed. `--delete` keeps it idempotent — files removed at the source disappear from the brain instead of lingering as stale nodes.
+
+### `brain sync [project] [--dry-run] [--full]`
+
+Runs every connector whose interval has elapsed (tracked in `connectors/state/<name>.json`), then rebuilds the graph — but only if at least one connector actually ran (or `--full` was passed).
 
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | Report which connectors are due and whether their scripts exist. Runs nothing, touches nothing. |
+| `--full` | Force a full re-index, and rebuild even if nothing was due. Implied on the first build. |
 
 Prints `ran=[...] skipped=[...] errors=[...] graph_rebuilt=<bool>` and exits non-zero if any connector failed. Safe to run against an empty registry.
+
+**Two rebuild commands, and picking the wrong one silently does nothing** — `brain sync` picks for you:
+
+| | indexes | needs an LLM | when brain uses it |
+| --- | --- | --- | --- |
+| `graphify extract` | documents **and** code | yes, for documents | first build, and every `--full` |
+| `graphify update` | code only (local AST) | no | every later run |
+
+A brain made of documents therefore needs a model to index it. If no API key is set, `brain sync` says so and offers both ways out: export one (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …), or let Claude Code do the extraction itself by running `/graphify` in the project.
 
 ### `brain connect-claude [project] [--desktop] [--trust-desktop]`
 
@@ -199,10 +283,12 @@ Each record needs `id`, `title`, and `body`; any other keys are written into the
 
 ### Choosing an approach, cheapest first
 
-1. **Local folder already on disk** → don't symlink it; graphify doesn't follow symlinks. Mirror it instead, e.g. a connector that shells out to `rsync -a --delete <source>/ <out_dir>/`.
-2. **Content reachable by public URL** → use `graphify add <url>` directly; no connector needed. Run `graphify update` afterwards.
+1. **Local folder already on disk** → `brain new-connector <project> <name> --mirror <folder>`. Generated complete, nothing to write.
+2. **Content reachable by public URL** → `graphify add <url>` directly; no connector needed. Rebuild with `brain sync --full` afterwards.
 3. **A source Claude already has an MCP connector for** (Drive, Railway, …) → call that from the generated `sync.py` rather than building fresh auth.
 4. **Anything else** (CRM, bespoke API) → a full connector, as above.
+
+`brain new` asks which of these a source is and does 1 and 2 for you.
 
 ## Project layout
 
