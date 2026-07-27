@@ -44,7 +44,19 @@ jobs:
         run: python -m compileall -q src
 
       - name: Import check
-        run: python -c "from brainiphy_cli import cli, project, steps, sync, wizard, ui, prompt, picker, keychain, frontmatter"
+        # Every module, so a rename that misses a caller fails here rather than
+        # at the first user who runs the command that touches it. Keep the list
+        # complete when adding a module.
+        run: python -c "from brainiphy_cli import actions, app, cli, collect, frontmatter, httpclient, keychain, keys, picker, presets, project, prompt, steps, sync, ui"
+
+      - name: Templates and presets compile
+        # Connector templates and presets are copied as text and never
+        # imported, so a syntax error in one would otherwise surface only when
+        # a user runs the connector it generated. compileall covers them.
+        run: python -m compileall -q src/brainiphy_cli
+
+      - name: Every preset is readable through the registry
+        run: python -c "from brainiphy_cli import presets; [presets.PRESETS[n].text() for n in presets.names()]"
 
       - name: Smoke test
         # Everything that runs without graphify, an LLM key or a TTY.
