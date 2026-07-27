@@ -2,14 +2,15 @@
 brains for a business, from zero data sources to a synced graph connected
 to Claude Code and Claude Desktop.
 
-Start with `brain new` (guided, asks questions) or `brain guide` (shows what a
-brain needs and how far along this one is). Everything either of them does is
-also available as an individual command below.
+Bare `brain` (or `brain new`) opens the app: the seven steps of building a
+brain, walked in order, inside the CLI. Everything it does is also available as
+an individual command below — which is what a script or an agent should use,
+since the app needs a terminal.
 
 This module is argparse plumbing only: the real work lives in project.py
 (scaffolding, connectors, Claude, scheduling), sync.py (running connectors),
-steps.py (what the playbook is and how far along a project is) and wizard.py
-(the guided flow).
+steps.py (what the playbook is and how far along a project is), app.py (the
+flow) and actions.py (the interactive operations a step performs).
 """
 from __future__ import annotations
 
@@ -19,22 +20,29 @@ import sys
 from pathlib import Path
 
 from brainiphy_cli import (
+    app,
     keychain,
-    menu,
+    keys,
     picker,
     presets,
     project as project_mod,
     steps,
     sync as sync_mod,
     ui,
-    wizard,
 )
 
 
 # ----------------------------------------------------------------- new ----
 
 def cmd_new(args: argparse.Namespace) -> int:
-    return wizard.run(args.project)
+    """`brain new` and bare `brain` are the same thing: the app.
+
+    They used to be a one-shot wizard and a menu, which meant three front doors
+    (with `brain init`) and no single answer to "how do I drive this". The app
+    is the flow now; this name is kept because it is the one the docs and the
+    CLI's own hints point at.
+    """
+    return app.run(args.project)
 
 
 # --------------------------------------------------------------- guide ----
@@ -72,6 +80,17 @@ def cmd_init(args: argparse.Namespace) -> int:
     except FileNotFoundError:
         ui.warn("graphify is not installed")
         ui.hint("install it with:", "pip3 install --user graphifyy")
+
+    # Scaffolding is step 2 of a seven-step process, so at a terminal, carry
+    # straight on into it rather than printing the next command and stopping.
+    if picker.is_interactive() and keys.supported():
+        ui.blank()
+        ui.hint("continuing into the setup — press any key", "")
+        try:
+            keys.read_key()
+        except (KeyboardInterrupt, EOFError):
+            return 0
+        return app.run(str(project))
 
     ui.hint("next step — add a data source:", f"brain new {ui.short_path(project)}")
     ui.hint("or see the whole process:", f"brain guide {ui.short_path(project)}")
@@ -260,25 +279,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-# ------------------------------------------------------------------ menu ----
-
-def cmd_menu(args: argparse.Namespace) -> int:
-    return menu.run(args.project)
-
-
 # ------------------------------------------------------------------ main --
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="brain", description=__doc__)
-    # Not required: bare `brain` opens the menu. Every command below is still
+    # Not required: bare `brain` opens the app. Every command below is still
     # available by name, which is what a script or an agent should use.
     sub = parser.add_subparsers(dest="command", required=False)
 
-    p = sub.add_parser("menu", help="Navigable menu (also what bare `brain` opens)")
-    p.add_argument("project", nargs="?", default=None)
-    p.set_defaults(func=cmd_menu)
-
-    p = sub.add_parser("new", help="Guided end-to-end setup: build a brain step by step")
+    p = sub.add_parser("new", help="Open the app: walk the seven steps (same as bare `brain`)")
     p.add_argument("project", nargs="?", default=None, help="Target folder; omit it to pick one interactively")
     p.set_defaults(func=cmd_new)
 
@@ -362,11 +371,11 @@ def main() -> int:
 
     args = parser.parse_args()
     if getattr(args, "func", None) is None:
-        return menu.run(None)
+        return app.run(None)
 
     # Draw the box around commands that just print a result. Three kinds are
     # excluded and each for its own reason:
-    #   - interactive ones (menu, new, init without a path, secret set) prompt
+    #   - interactive ones (new, init without a path, secret set) prompt
     #     mid-run, and a framed block shows nothing until it ends;
     #   - sync streams for minutes, where watching it beats a tidy border;
     #   - secret get must stay bare on stdout so it can be piped.
