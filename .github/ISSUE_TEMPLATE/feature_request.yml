@@ -1,0 +1,42 @@
+name: Feature request
+description: A data source, a command or a step in the playbook that is missing
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to get into a brain, and what stops you today
+      description: |
+        Describe the situation, not the implementation. "My client's proposals
+        live in Notion and I have to re-export them by hand every week" is more
+        useful than "add a Notion flag".
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What you think it should look like
+      description: Command line, prompt, or the step in SKILL.md it would slot into.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of change
+      options:
+        - A new kind of data source / connector
+        - A new command or flag
+        - A change to the seven-step playbook (SKILL.md + steps.py)
+        - Output, prompts, or the guided flow
+        - Something else
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: alternatives
+    attributes:
+      label: Already ruled out
+      options:
+        - label: A mirrored local folder (`brain new-connector --mirror`) does not cover it
+        - label: "`graphify add <url>` does not cover it"
+        - label: There is no existing MCP connector for the source
