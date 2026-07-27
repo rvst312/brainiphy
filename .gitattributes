@@ -1,0 +1,22 @@
+# Normalize line endings in the repo; check files out with the platform's own.
+# The generated connector scripts are executed directly, so a stray CRLF in one
+# of the templates would break the shebang on macOS.
+* text=auto eol=lf
+
+*.py       text diff=python
+*.md       text diff=markdown
+*.yaml     text
+*.yml      text
+*.toml     text
+*.plist    text
+*.sh       text eol=lf
+LICENSE    text
+
+*.png binary
+*.jpg binary
+*.pdf binary
+
+# Not part of a source export.
+.github/    export-ignore
+.gitattributes export-ignore
+.gitignore  export-ignore
