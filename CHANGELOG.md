@@ -18,11 +18,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `brain sync --full` — full `graphify extract` re-index instead of the
   incremental, code-only `graphify update`. Happens automatically on the first
   build.
+- `brain` with no arguments (also `brain menu`) — a navigable menu: arrow keys,
+  the whole app inside a box, and a pointer at whichever of the seven steps the
+  project needs next. It owns no operations; every entry calls the same
+  function the equivalent command does. Refuses without a TTY, like `brain new`.
+- `brain presets` and `brain new-connector --preset <name> [--var K=V]` —
+  install a connector that is already written for a known system. GoHighLevel /
+  LeadConnector is the first: contacts, opportunities, pipelines, conversations,
+  calendars, users and forms from one sub-account.
+- `brain new-connector --api <base-url>` — a connector for a REST API with the
+  plumbing already done, leaving one `collect_*` function per object to write.
+- Generated API connectors accept `--probe`, which reports what the credential
+  can actually read without writing anything, and `--only <collector>`.
 - Contributor workflow: `CONTRIBUTING.md`, commit template, PR and issue
   templates, `scripts/smoke.sh`, and CI running it on Linux and macOS across
   Python 3.9–3.13.
 
 ### Changed
+
+- Commands that only print a result (`status`, `guide`, `presets`,
+  `new-connector`, `connect-claude`, `schedule`) render inside the app box.
+  Interactive commands, `sync` and `secret get` deliberately do not, and the
+  box is skipped entirely when stdout is not a terminal, so piping still yields
+  plain text.
+- The folder picker navigates with arrow keys and marks folders that are
+  already brains. The original numbered/typed browser remains as a fallback for
+  terminals that cannot enter raw mode.
+- `brain guide` step 4 distinguishes a connector that still needs code from one
+  whose account details were never filled in, and names the missing constant.
 
 - `cli.py` is argparse plumbing only; project operations moved to `project.py`,
   the playbook to `steps.py`, the guided flow to `wizard.py` and the prompt
