@@ -249,11 +249,22 @@ if [ -e "$PREFIX" ] || [ -L "$PREFIX" ]; then
   fi
   if [ -d "$target/.git" ]; then
     ok "existing checkout: $target"
+    # Updating is a convenience; installing is the job. Every reason a pull can
+    # fail here is a state a real checkout is legitimately in — detached at a
+    # tag, mid-bisect, on a branch with no upstream, offline — and none of them
+    # is a reason to refuse to install what is already on disk.
     if [ -n "$(git -C "$target" status --porcelain 2>/dev/null)" ]; then
-      warn "it has uncommitted changes — leaving it exactly as it is"
-    else
-      run git -C "$target" pull --ff-only --quiet
+      warn "uncommitted changes — leaving the checkout exactly as it is"
+    elif ! git -C "$target" symbolic-ref -q HEAD >/dev/null 2>&1; then
+      warn "detached HEAD — installing this commit, not updating"
+    elif ! git -C "$target" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      warn "branch has no upstream — installing as it is, not updating"
+    elif [ "$DRY_RUN" = 1 ]; then
+      printf '  %swould run:%s git -C %s pull --ff-only\n' "$DIM" "$OFF" "$target"
+    elif git -C "$target" pull --ff-only --quiet 2>/dev/null; then
       ok "updated to the latest commit"
+    else
+      warn "could not fast-forward — installing the checkout as it is"
     fi
     PREFIX="$target"
   else
