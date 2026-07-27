@@ -4,8 +4,21 @@ __pycache__/
 build/
 dist/
 .venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# brainiphy: salidas generadas, no versionar
+# Editors and OS junk
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.idea/
+.vscode/
+
+# brainiphy: generated output, do not version
 connectors/state/
 connectors/logs/
 mirrors/

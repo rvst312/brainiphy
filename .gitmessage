@@ -1,0 +1,11 @@
+# <type>(<scope>): <subject>          <- imperative, lower case, no period, <=72 chars
+#
+# <body: why this change, what it replaces, what breaks if it is undone.
+#  The diff already says what changed — do not repeat it. Wrap at 72.>
+#
+# <footer: BREAKING CHANGE: …  /  Refs #123  /  Co-Authored-By: …>
+#
+# type:  feat fix docs refactor perf chore ci revert
+# scope: cli sync wizard steps project prompt picker ui keychain skill deps
+#
+# Enable with:  git config commit.template .gitmessage
