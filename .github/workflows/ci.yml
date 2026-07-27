@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS is the real target (Keychain, launchd); Linux catches
+          # accidental platform assumptions in the parts that are portable.
+          - {os: macos-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.9"}   # the floor in pyproject.toml
+          - {os: ubuntu-latest, python: "3.13"}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install the package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Byte-compile every module
+        # Catches syntax that the version floor does not support, in modules a
+        # smoke test never imports (the connector templates, for instance).
+        run: python -m compileall -q src
+
+      - name: Import check
+        run: python -c "from brainiphy_cli import cli, project, steps, sync, wizard, ui, prompt, picker, keychain, frontmatter"
+
+      - name: Smoke test
+        # Everything that runs without graphify, an LLM key or a TTY.
+        run: ./scripts/smoke.sh
