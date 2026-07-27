@@ -8,8 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `brain new` — guided, end-to-end setup that walks the seven steps of building
-  a brain, asking questions and generating what it can.
+- `brain` (equivalently `brain new`) — the app: the seven steps of building a
+  brain rendered as a checklist, each runnable in place, advancing to the next
+  as they complete. Steps stay reachable out of order, and off-flow operations
+  (sync, credentials, presets, switching project) sit behind `t` for tools.
+  `brain init` at a terminal scaffolds and then continues into it.
 - `brain guide` — shows those seven steps and how far along a given project is;
   the same data drives the next-step line in `brain status`.
 - `brain new-connector --mirror <folder>` — a complete, ready-to-run connector
@@ -18,10 +21,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `brain sync --full` — full `graphify extract` re-index instead of the
   incremental, code-only `graphify update`. Happens automatically on the first
   build.
-- `brain` with no arguments (also `brain menu`) — a navigable menu: arrow keys,
-  the whole app inside a box, and a pointer at whichever of the seven steps the
-  project needs next. It owns no operations; every entry calls the same
-  function the equivalent command does. Refuses without a TTY, like `brain new`.
 - `brain presets` and `brain new-connector --preset <name> [--var K=V]` —
   install a connector that is already written for a known system. GoHighLevel /
   LeadConnector is the first: contacts, opportunities, pipelines, conversations,
@@ -48,9 +47,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose account details were never filled in, and names the missing constant.
 
 - `cli.py` is argparse plumbing only; project operations moved to `project.py`,
-  the playbook to `steps.py`, the guided flow to `wizard.py` and the prompt
-  helpers to `prompt.py`, so the guided path and the individual commands share
-  one implementation.
+  the playbook to `steps.py`, the flow to `app.py`, the interactive operations
+  a step performs to `actions.py` and the prompt helpers to `prompt.py`, so the
+  guided path and the individual commands share one implementation.
 - Every graphify invocation passes `--no-gitignore`. graphify honors
   `.gitignore`, which lists `raw/`, so without it a brain's entire corpus was
   skipped.

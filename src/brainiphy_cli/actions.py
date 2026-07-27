@@ -1,14 +1,14 @@
-"""`brain new` — the guided end-to-end flow for building a brain.
+"""The interactive operations a step of the flow performs.
 
-Everything this does is also available as an individual command; the wizard
-adds the part that used to live only in a human's (or an agent's) head: the
-order of the steps, what each one is for, and which of them a given project
-still needs. It walks the same seven steps `brain guide` reports on, calling
-the same functions in project.py, and prints the checklist on the way out so
-whatever it could not do for you is spelled out.
+Not a flow of its own: app.py decides *when* each of these runs and what comes
+next, this module knows *how* to do one thing while talking to a human. It was
+`brain new`'s wizard until the flow moved into the app; the step ordering went
+with it, the operations stayed here.
 
-Re-running it on an existing brain is safe and expected: each step detects
-what is already there and offers to skip it.
+Everything raises Cancelled when the user hits Ctrl-C/Ctrl-D at a prompt, so a
+caller unwinds in one place instead of checking a return value at every step.
+Each function calls the same project.py helper the equivalent named command
+does — the guided path must not grow its own copy of an operation.
 """
 from __future__ import annotations
 
@@ -29,33 +29,8 @@ from brainiphy_cli import (
     ui,
 )
 
-TOTAL_STEPS = 7
-
-# What a source can be, in the order SKILL.md recommends trying: cheapest and
-# most automatic first, bespoke code last.
-SOURCE_CHOICES = [
-    "a system brainiphy already knows (ready-made connector — just answer a couple of questions)",
-    "a folder on this Mac        (mirrored automatically — no code to write)",
-    "a public URL                (fetched by graphify directly)",
-    "a REST API                  (plumbing done, you write the endpoints)",
-    "something else              (bare connector for you to fill in)",
-    "nothing more — move on",
-]
-DONE_CHOICE = len(SOURCE_CHOICES) - 1
-
-
 class Cancelled(Exception):
     """The user hit Ctrl-C / Ctrl-D at a prompt. Unwinds to run()."""
-
-
-def _step(number: int, title: str) -> None:
-    ui.blank()
-    line = Text()
-    line.append(f"Step {number}/{TOTAL_STEPS}", style="brain.hint")
-    line.append("  ")
-    line.append(title, style="brain.head")
-    ui.out.print(line)
-    ui.out.rule(style="brain.info")
 
 
 def _why(text: str) -> None:
@@ -106,24 +81,7 @@ def _ask_interval(default: float) -> float:
         return minutes
 
 
-# ------------------------------------------------------------------ steps --
-
-def _step_location(project_arg: str | None) -> Path:
-    _step(1, "Where should the brain live?")
-    _why("A brain is a folder: your sources get mirrored into it and the graph is built there.")
-    if project_arg is not None:
-        chosen = Path(project_arg).expanduser().resolve()
-        chosen.mkdir(parents=True, exist_ok=True)
-        ui.ok("using", chosen)
-        return chosen
-    chosen = picker.pick_project_dir()
-    if chosen is None:
-        raise Cancelled
-    return chosen
-
-
-def _step_graphify() -> None:
-    _step(2, "Check graphify")
+def ensure_graphify() -> None:
     _why("graphify is the engine that indexes the collected files and builds the graph.")
     try:
         ui.ok("graphify found:", project_mod.find_exe("graphify"))
@@ -142,15 +100,9 @@ def _step_graphify() -> None:
         )
     if result.returncode != 0:
         ui.raw(result.stderr, stderr=True)
-        ui.error("install failed — do it by hand and re-run `brain new`")
+        ui.error("install failed — do it by hand, then come back to this step")
         return
     ui.ok("graphify installed")
-
-
-def _step_scaffold(project: Path) -> None:
-    _step(3, "Prepare the folder")
-    _why("Creates connectors/registry.yaml and the ignore files. Safe on an existing project.")
-    project_mod.scaffold(project)
 
 
 def add_local_folder(project: Path) -> str | None:
@@ -290,112 +242,3 @@ def add_custom(project: Path) -> str | None:
     return name
 
 
-def _step_sources(project: Path) -> list[str]:
-    _step(4, "What feeds this brain?")
-    _why("Each source becomes a connector. Add as many as you like — you can always add more later.")
-
-    existing = project_mod.load_registry_entries(project)
-    if existing:
-        ui.info("already registered: " + ", ".join(e.get("name", "?") for e in existing))
-
-    added: list[str] = []
-    handlers = (add_preset, add_local_folder, add_url, add_api, add_custom)
-    while True:
-        choice = _choose(
-            "Add a source:", SOURCE_CHOICES, default=DONE_CHOICE if (existing or added) else 0
-        )
-        if choice == DONE_CHOICE:
-            break
-        name = handlers[choice](project)
-        if name:
-            added.append(name)
-
-    if not added and not existing:
-        ui.warn("no sources yet — the brain will be empty until you add one")
-    return added
-
-
-def _step_build(project: Path) -> None:
-    _step(5, "First build")
-    _why("Pulls every source in and indexes it. Documents need an LLM backend — an API key,")
-    _why("or Claude Code itself running /graphify in the folder. brain sync will say which.")
-
-    pending = steps.unimplemented_connectors(project)
-    if pending:
-        ui.warn("these still have no fetch_records() and will fail this run: " + ", ".join(pending))
-        ui.info("that is expected — implement them, then run brain sync again")
-
-    if not _confirm("Run it now?", default=True):
-        ui.hint("run it later with:", f"brain sync {ui.short_path(project)} --full")
-        return
-
-    try:
-        # full=True: first build, so index documents too, not just code — and
-        # rebuild even if nothing was due (a URL-only brain has no connectors).
-        sync_mod.run(project, full=True)
-    except FileNotFoundError as exc:
-        ui.error(str(exc))
-
-
-def _step_claude(project: Path) -> None:
-    _step(6, "Connect it to Claude")
-    _why("Claude Code reads the graph through CLAUDE.md + hooks. Claude Desktop needs an MCP server.")
-
-    if not _confirm("Wire this brain into Claude Code?", default=True):
-        ui.hint("do it later with:", f"brain connect-claude {ui.short_path(project)}")
-        return
-
-    desktop = _confirm("Also register it in Claude Desktop (MCP server)?", default=False)
-    trust = False
-    if desktop:
-        trust = _confirm("Add the folder to Desktop's trusted folders? (appends, never replaces)", default=False)
-    project_mod.connect_claude(project, desktop=desktop, trust_desktop=trust)
-
-
-def _step_schedule(project: Path) -> None:
-    _step(7, "Keep it in sync")
-    _why("A LaunchAgent re-runs `brain sync` in the background so the graph does not go stale.")
-
-    if not project_mod.load_registry_entries(project):
-        ui.info("no connectors registered, so there is nothing to schedule yet")
-        ui.hint("once you add one:", f"brain schedule {ui.short_path(project)} --interval-minutes 15 --load")
-        return
-
-    if not _confirm("Schedule automatic syncing?", default=True):
-        ui.hint("do it later with:", f"brain schedule {ui.short_path(project)} --interval-minutes 15 --load")
-        return
-
-    interval = _ask_interval(15)
-    project_mod.schedule(project, interval_minutes=interval, load=True)
-
-
-# ------------------------------------------------------------------- run ---
-
-def run(project_arg: str | None) -> int:
-    if not picker.is_interactive():
-        ui.error("`brain new` needs a terminal — it asks questions")
-        ui.hint("in a script, use the individual commands instead:", "brain init … && brain new-connector … && brain sync …")
-        return 1
-
-    ui.header("brain new", "guided setup — 7 steps, everything is optional")
-
-    project: Path | None = None
-    try:
-        project = _step_location(project_arg)
-        _step_graphify()
-        _step_scaffold(project)
-        _step_sources(project)
-        _step_build(project)
-        _step_claude(project)
-        _step_schedule(project)
-    except Cancelled:
-        ui.blank()
-        ui.warn("cancelled — nothing after this point was changed")
-        if project is not None:
-            ui.hint("pick up where you left off with:", f"brain guide {ui.short_path(project)}")
-        return 1
-
-    ui.blank()
-    ui.header("Where this brain stands", project)
-    steps.render(steps.inspect(project))
-    return 0

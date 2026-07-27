@@ -178,7 +178,8 @@ def working(message: str):
 # it inside a Panel instead of asking every command to care.
 
 # A Panel costs one border character and one pad character on each side.
-_FRAME_CHROME = 4
+# Public: callers that lay out their own text inside the box need to subtract it.
+FRAME_CHROME = 4
 
 _capturing = False
 
@@ -217,7 +218,7 @@ def framed(title: str, subtitle: str | None = None, *, style: str = "brain.hint"
     global _capturing
 
     saved_out, saved_err = out.width, err.width
-    out.width = err.width = max(20, saved_out - _FRAME_CHROME)
+    out.width = err.width = max(20, saved_out - FRAME_CHROME)
     _capturing = True
 
     stack = ExitStack()
