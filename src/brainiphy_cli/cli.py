@@ -15,11 +15,20 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import sys
 from pathlib import Path
 
-from brainiphy_cli import keychain, picker, project as project_mod, steps, sync as sync_mod, ui, wizard
+from brainiphy_cli import (
+    keychain,
+    menu,
+    picker,
+    presets,
+    project as project_mod,
+    steps,
+    sync as sync_mod,
+    ui,
+    wizard,
+)
 
 
 # ----------------------------------------------------------------- new ----
@@ -71,9 +80,26 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------- new-connector --
 
+def _parse_vars(pairs: list[str] | None) -> dict[str, str] | None:
+    """--var LOCATION_ID=abc123 … into a dict. None signals a malformed pair."""
+    variables: dict[str, str] = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            ui.error("--var needs NAME=VALUE, got:", pair)
+            return None
+        key, value = pair.split("=", 1)
+        variables[key.strip()] = value
+    return variables
+
+
 def cmd_new_connector(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     name = args.name
+
+    exclusive = [bool(args.mirror), bool(args.preset), bool(args.api)]
+    if sum(exclusive) > 1:
+        ui.error("--mirror, --preset and --api pick different templates — use one")
+        return 1
 
     mirror = None
     if args.mirror:
@@ -82,23 +108,81 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
             ui.error("--mirror needs an existing folder:", mirror)
             return 1
 
+    variables = _parse_vars(args.var)
+    if variables is None:
+        return 1
+
     ui.header("brain new-connector", f"{project}  ·  {name}")
 
     script_path = project_mod.create_connector(
-        project, name, interval_minutes=args.interval_minutes, mirror=mirror
+        project,
+        name,
+        interval_minutes=args.interval_minutes,
+        mirror=mirror,
+        preset=args.preset,
+        api_base=args.api,
+        variables=variables,
     )
     if script_path is None:
         return 1
 
+    secret_item = project_mod.secret_item_name(project, name)
+    short = ui.short_path(project)
+
     if mirror:
         ui.ok("ready to run — it mirrors", mirror)
-        ui.hint("pull it in now with:", f"brain sync {ui.short_path(project)}")
-    else:
-        ui.hint("fill in fetch_records() in:", str(script_path))
-        ui.hint(
-            "if it needs a credential:",
-            f"brain secret set {project_mod.secret_item_name(project, name)}",
+        ui.hint("pull it in now with:", f"brain sync {short}")
+        return 0
+
+    if args.preset:
+        preset = presets.get(args.preset)
+        for note in preset.notes:
+            ui.info(note)
+        ui.hint("store the credential:", f"brain secret set {secret_item}")
+        # --probe before the first real sync: it reports which objects the
+        # credential can actually read, without writing anything.
+        ui.hint("then see what it can read:", f"{script_path} --out /tmp/probe --probe")
+        ui.hint("then pull it in:", f"brain sync {short}")
+        return 0
+
+    if args.api:
+        ui.hint("write one collect_* function per object, then list it in COLLECTORS:",
+                str(script_path))
+        ui.hint("store the credential:", f"brain secret set {secret_item}")
+        ui.hint("check what it can read:", f"{script_path} --out /tmp/probe --probe")
+        return 0
+
+    ui.hint("fill in fetch_records() in:", str(script_path))
+    ui.hint("if it needs a credential:", f"brain secret set {secret_item}")
+    return 0
+
+
+# -------------------------------------------------------------- presets ----
+
+def cmd_presets(args: argparse.Namespace) -> int:
+    ui.header("brain presets", "connectors that are already written")
+    table = ui.table("preset", "system", "pulls")
+    for name in presets.names():
+        preset = presets.PRESETS[name]
+        table.add_row(
+            ui.cell(name, "brain.path"),
+            ui.cell(preset.title),
+            ui.cell(preset.description),
         )
+    ui.print_table(table)
+
+    ui.blank()
+    for name in presets.names():
+        preset = presets.PRESETS[name]
+        if not preset.variables:
+            continue
+        ui.info(f"{name} needs:")
+        for var in preset.variables:
+            ui.hint(f"  {var.name} — {var.prompt}", var.where or var.example)
+
+    ui.blank()
+    ui.hint("install one with:",
+            f"brain new-connector <project> <name> --preset {presets.names()[0]} --var NAME=VALUE")
     return 0
 
 
@@ -171,59 +255,28 @@ def cmd_secret_get(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
-    entries = project_mod.load_registry_entries(project)
     ui.header("brain status", project)
-
-    if not entries:
-        ui.info("no connectors registered yet")
-        ui.hint("add one interactively with:", f"brain new {ui.short_path(project)}")
-    else:
-        table = ui.table("connector", "interval", "state", "script")
-        for entry in entries:
-            name = entry["name"]
-            interval = float(entry.get("interval_minutes", 60))
-            due = sync_mod.is_due(project, name, interval)
-            script_ok = (project / "connectors" / name / "sync.py").exists()
-            table.add_row(
-                ui.cell(name, "brain.path"),
-                ui.cell(f"{interval:g} min"),
-                ui.cell("due now", "brain.warn") if due else ui.cell("up to date", "brain.ok"),
-                ui.cell("ok", "brain.ok") if script_ok else ui.cell("MISSING", "brain.err"),
-            )
-        ui.print_table(table)
-
-    ui.blank()
-    graph_json = project / "graphify-out" / "graph.json"
-    if graph_json.exists():
-        try:
-            data = json.loads(graph_json.read_text(encoding="utf-8"))
-            nodes = len(data.get("nodes", []))
-            edges = len(data.get("links", data.get("edges", [])))
-            ui.ok(f"graph: {nodes} nodes, {edges} edges", graph_json)
-        except json.JSONDecodeError:
-            ui.warn("graph exists but could not be parsed:", graph_json)
-    else:
-        ui.warn("graph not built yet")
-        ui.hint("build it with:", f"brain sync {ui.short_path(project)}")
-
-    # Where this project sits in the overall process — status answers "what is
-    # the state of my connectors", this answers "what do I do next".
-    state = steps.inspect(project)
-    ui.blank()
-    if state.complete:
-        ui.ok(f"setup complete ({state.done_count}/{len(state.steps)} steps)")
-    else:
-        next_step = state.next_step
-        ui.info(f"setup: {state.done_count}/{len(state.steps)} steps done — next is '{next_step.title}'")
-        ui.hint("see the whole process with:", f"brain guide {ui.short_path(project)}")
+    steps.render_status(project)
     return 0
+
+
+# ------------------------------------------------------------------ menu ----
+
+def cmd_menu(args: argparse.Namespace) -> int:
+    return menu.run(args.project)
 
 
 # ------------------------------------------------------------------ main --
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="brain", description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
+    # Not required: bare `brain` opens the menu. Every command below is still
+    # available by name, which is what a script or an agent should use.
+    sub = parser.add_subparsers(dest="command", required=False)
+
+    p = sub.add_parser("menu", help="Navigable menu (also what bare `brain` opens)")
+    p.add_argument("project", nargs="?", default=None)
+    p.set_defaults(func=cmd_menu)
 
     p = sub.add_parser("new", help="Guided end-to-end setup: build a brain step by step")
     p.add_argument("project", nargs="?", default=None, help="Target folder; omit it to pick one interactively")
@@ -232,22 +285,43 @@ def main() -> int:
     p = sub.add_parser("guide", help="Show the 7 steps of building a brain and how far along this one is")
     p.add_argument("project", nargs="?", default=".")
     p.add_argument("--verbose", action="store_true", help="Also show details for the steps already done")
-    p.set_defaults(func=cmd_guide)
+    p.set_defaults(func=cmd_guide, framed=True)
 
     p = sub.add_parser("init", help="Set up connectors/ and .gitignore in a project")
     p.add_argument("project", nargs="?", default=None, help="Target folder; omit it to pick one interactively")
     p.set_defaults(func=cmd_init)
 
-    p = sub.add_parser("new-connector", help="Create a new connector from the template")
+    p = sub.add_parser("new-connector", help="Create a new connector from a preset or a template")
     p.add_argument("project")
     p.add_argument("name")
     p.add_argument("--interval-minutes", type=float, default=60)
     p.add_argument(
         "--mirror",
         metavar="FOLDER",
-        help="Generate a ready-to-run connector that mirrors a local folder (no fetch_records to write)",
+        help="Ready-to-run connector that mirrors a local folder (nothing to fill in)",
     )
-    p.set_defaults(func=cmd_new_connector)
+    p.add_argument(
+        "--preset",
+        metavar="NAME",
+        choices=presets.names(),
+        help="Install a finished connector for a known system (see `brain presets`)",
+    )
+    p.add_argument(
+        "--api",
+        metavar="BASE_URL",
+        help="Connector for a REST API: retries, pagination and scope handling done, "
+        "endpoints left for you to write",
+    )
+    p.add_argument(
+        "--var",
+        metavar="NAME=VALUE",
+        action="append",
+        help="Fill in a template constant, e.g. --var LOCATION_ID=abc123 (repeatable)",
+    )
+    p.set_defaults(func=cmd_new_connector, framed=True)
+
+    p = sub.add_parser("presets", help="List the connectors that are already written")
+    p.set_defaults(func=cmd_presets, framed=True)
 
     p = sub.add_parser("sync", help="Run due connectors and rebuild the graph")
     p.add_argument("project", nargs="?", default=".")
@@ -264,14 +338,14 @@ def main() -> int:
     p.add_argument("project", nargs="?", default=".")
     p.add_argument("--desktop", action="store_true", help="Register an MCP server in Claude Desktop")
     p.add_argument("--trust-desktop", action="store_true", help="Add the project to localAgentModeTrustedFolders (additive)")
-    p.set_defaults(func=cmd_connect_claude)
+    p.set_defaults(func=cmd_connect_claude, framed=True)
 
     p = sub.add_parser("schedule", help="Generate and install a LaunchAgent for periodic `brain sync`")
     p.add_argument("project", nargs="?", default=".")
     p.add_argument("--interval-minutes", type=float, default=15)
     p.add_argument("--slug", default=None)
     p.add_argument("--load", action="store_true", help="Load it immediately with launchctl")
-    p.set_defaults(func=cmd_schedule)
+    p.set_defaults(func=cmd_schedule, framed=True)
 
     secret = sub.add_parser("secret", help="Manage credentials in the Keychain")
     secret_sub = secret.add_subparsers(dest="secret_command", required=True)
@@ -284,9 +358,24 @@ def main() -> int:
 
     p = sub.add_parser("status", help="Show connector and graph status")
     p.add_argument("project", nargs="?", default=".")
-    p.set_defaults(func=cmd_status)
+    p.set_defaults(func=cmd_status, framed=True)
 
     args = parser.parse_args()
+    if getattr(args, "func", None) is None:
+        return menu.run(None)
+
+    # Draw the box around commands that just print a result. Three kinds are
+    # excluded and each for its own reason:
+    #   - interactive ones (menu, new, init without a path, secret set) prompt
+    #     mid-run, and a framed block shows nothing until it ends;
+    #   - sync streams for minutes, where watching it beats a tidy border;
+    #   - secret get must stay bare on stdout so it can be piped.
+    # Only when stdout is a terminal: piping `brain status` into a file should
+    # produce text, not box-drawing characters.
+    if getattr(args, "framed", False) and ui.out.is_terminal:
+        project = getattr(args, "project", None)
+        with ui.framed(args.command, ui.short_path(Path(project).resolve()) if project else None):
+            return args.func(args)
     return args.func(args)
 
 

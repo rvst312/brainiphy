@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from brainiphy_cli import sync as sync_mod, ui
+from brainiphy_cli import presets, sync as sync_mod, ui
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -136,18 +136,46 @@ def scaffold(project: Path) -> None:
 
 # ---------------------------------------------------- connector creation ----
 
+def set_constant(text: str, name: str, expr: str) -> tuple[str, bool]:
+    """Rewrite a module-level `NAME = …` assignment to `NAME = <expr>`.
+
+    Templates declare everything the installer must supply as a top-level
+    constant, so filling one in is a line rewrite rather than string surgery on
+    a placeholder. A lambda supplies the replacement because re.sub would treat
+    backslashes in a Windows-ish path as escape sequences.
+    """
+    pattern = re.compile(rf"^{re.escape(name)} = .*$", re.MULTILINE)
+    new_text, count = pattern.subn(lambda _m: f"{name} = {expr}", text, count=1)
+    return new_text, bool(count)
+
+
+def unfilled_placeholders(text: str) -> list[str]:
+    """Constants still left at their REPLACE_ME value, in file order. A
+    connector with any of these cannot run yet, and steps.py reports it."""
+    return re.findall(r'^([A-Z_][A-Z0-9_]*) = "REPLACE_ME[A-Z_]*"$', text, re.MULTILINE)
+
+
 def create_connector(
     project: Path,
     name: str,
     *,
     interval_minutes: float = 60,
     mirror: Path | None = None,
+    preset: str | None = None,
+    api_base: str | None = None,
+    variables: dict[str, str] | None = None,
 ) -> Path | None:
     """Write connectors/<name>/sync.py from the right template and register it.
 
-    `mirror` picks the ready-to-run rsync template over the generic one that
-    needs fetch_records() filled in. Returns the script path, or None when a
-    script was already there (never overwritten — it may hold real work).
+    Four kinds of connector, in descending order of how much is already done:
+      - `preset`   a finished connector for a system brainiphy knows (see
+                   presets/): only the account-identifying constants are left.
+      - `mirror`   the rsync template for a folder on this Mac — nothing to fill in.
+      - `api_base` the REST template: plumbing done, endpoints left to write.
+      - neither    the generic template, a bare fetch_records() to implement.
+
+    Returns the script path, or None when a script was already there (never
+    overwritten — it may hold real work) or the preset name was unknown.
     """
     connector_dir = project / "connectors" / name
     script_path = connector_dir / "sync.py"
@@ -156,19 +184,48 @@ def create_connector(
         ui.error("already exists, not overwriting it:", script_path)
         return None
 
-    connector_dir.mkdir(parents=True, exist_ok=True)
-    template_name = "mirror_template.py" if mirror else "connector_template.py"
-    template = (TEMPLATE_DIR / template_name).read_text(encoding="utf-8")
-    template = template.replace('SOURCE_SYSTEM = "REPLACE_ME"', f'SOURCE_SYSTEM = "{name}"')
+    chosen: presets.Preset | None = None
+    if preset:
+        chosen = presets.get(preset)
+        if chosen is None:
+            ui.error(f"unknown preset {preset!r}. Available:", ", ".join(presets.names()))
+            return None
+        template = chosen.text()
+    elif mirror:
+        template = (TEMPLATE_DIR / "mirror_template.py").read_text(encoding="utf-8")
+    elif api_base:
+        template = (TEMPLATE_DIR / "api_template.py").read_text(encoding="utf-8")
+    else:
+        template = (TEMPLATE_DIR / "connector_template.py").read_text(encoding="utf-8")
+
+    # A preset names its own source system (the vendor, not this connector's
+    # local nickname) so records keep the same source_system across projects.
+    if not chosen:
+        template, _ = set_constant(template, "SOURCE_SYSTEM", repr(name))
+
     if mirror:
-        # repr() so a folder name with a quote or a backslash in it still
-        # produces a valid literal.
-        template = template.replace(
-            'MIRROR_SOURCE = Path("REPLACE_ME_SOURCE")', f"MIRROR_SOURCE = Path({str(mirror)!r})"
-        )
+        template, _ = set_constant(template, "MIRROR_SOURCE", f"Path({str(mirror)!r})")
+    if api_base:
+        template, _ = set_constant(template, "BASE_URL", repr(api_base.rstrip("/")))
+    if chosen or api_base:
+        template, _ = set_constant(template, "SECRET_ITEM",
+                                   repr(secret_item_name(project, name)))
+
+    for key, value in (variables or {}).items():
+        template, replaced = set_constant(template, key, repr(value))
+        if not replaced:
+            ui.warn(f"{key} is not a constant in this template, ignored")
+
+    connector_dir.mkdir(parents=True, exist_ok=True)
     script_path.write_text(template, encoding="utf-8")
     script_path.chmod(0o755)
     ui.ok("created", script_path.relative_to(project))
+
+    if chosen:
+        ui.info(f"preset: {chosen.title}")
+    missing = unfilled_placeholders(template)
+    if missing:
+        ui.warn("still to fill in before it can run: " + ", ".join(missing))
 
     entries = load_registry_entries(project)
     if any(e.get("name") == name for e in entries):

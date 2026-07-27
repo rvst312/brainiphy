@@ -18,18 +18,30 @@ from pathlib import Path
 
 from rich.text import Text
 
-from brainiphy_cli import keychain, picker, project as project_mod, prompt, steps, sync as sync_mod, ui
+from brainiphy_cli import (
+    keychain,
+    picker,
+    presets,
+    project as project_mod,
+    prompt,
+    steps,
+    sync as sync_mod,
+    ui,
+)
 
 TOTAL_STEPS = 7
 
 # What a source can be, in the order SKILL.md recommends trying: cheapest and
 # most automatic first, bespoke code last.
 SOURCE_CHOICES = [
+    "a system brainiphy already knows (ready-made connector — just answer a couple of questions)",
     "a folder on this Mac        (mirrored automatically — no code to write)",
     "a public URL                (fetched by graphify directly)",
-    "an API, CRM or anything else (generates a connector for you to fill in)",
+    "a REST API                  (plumbing done, you write the endpoints)",
+    "something else              (bare connector for you to fill in)",
     "nothing more — move on",
 ]
+DONE_CHOICE = len(SOURCE_CHOICES) - 1
 
 
 class Cancelled(Exception):
@@ -141,7 +153,7 @@ def _step_scaffold(project: Path) -> None:
     project_mod.scaffold(project)
 
 
-def _add_local_folder(project: Path) -> str | None:
+def add_local_folder(project: Path) -> str | None:
     source = _ask_path("Which folder? (paste the path)")
     if not source.is_dir():
         ui.error("that is a file, not a folder:", source)
@@ -157,7 +169,7 @@ def _add_local_folder(project: Path) -> str | None:
     return name
 
 
-def _add_url(project: Path) -> str | None:
+def add_url(project: Path) -> str | None:
     url = _ask("Which URL?")
     if not url:
         return None
@@ -180,7 +192,86 @@ def _add_url(project: Path) -> str | None:
     return None
 
 
-def _add_custom(project: Path) -> str | None:
+def _store_secret(project: Path, name: str, label: str) -> None:
+    """Offer to put a connector's credential in the Keychain now.
+
+    Always the same item name the connector reads and `brain secret set`
+    writes, so the three never drift apart.
+    """
+    item = project_mod.secret_item_name(project, name)
+    _why(f"It will be stored in the macOS Keychain as '{item}' — never in a file, never in chat.")
+    if not _confirm(f"Enter the {label} now?", default=True):
+        ui.hint("store it later with:", f"brain secret set {item}")
+        return
+    try:
+        value = getpass.getpass(f"Value for {item} (input hidden): ")
+    except (EOFError, KeyboardInterrupt):
+        raise Cancelled
+    if value:
+        keychain.set_secret(item, value)
+        ui.ok("stored in the Keychain:", item)
+    else:
+        ui.warn("empty value, skipped")
+        ui.hint("store it later with:", f"brain secret set {item}")
+
+
+def add_preset(project: Path) -> str | None:
+    available = presets.names()
+    labels = [f"{presets.PRESETS[n].title}  —  {presets.PRESETS[n].description}" for n in available]
+    labels.append("none of these — go back")
+    picked = _choose("Which system?", labels, default=0)
+    if picked >= len(available):
+        return None
+    preset = presets.PRESETS[available[picked]]
+
+    name = project_mod.slug(_ask("Name this source", default=preset.name))
+    if not name:
+        return None
+
+    # Ask for the account-identifying constants up front: a preset installed
+    # without them is a connector that exists and cannot run.
+    variables: dict[str, str] = {}
+    for var in preset.variables:
+        if var.where:
+            _why(f"{var.name}: {var.where}")
+        answer = _ask(var.prompt + (f" (e.g. {var.example})" if var.example else ""))
+        if answer:
+            variables[var.name] = answer
+
+    interval = _ask_interval(60)
+    script = project_mod.create_connector(
+        project, name, interval_minutes=interval, preset=preset.name, variables=variables
+    )
+    if script is None:
+        return None
+
+    if preset.needs_secret:
+        _store_secret(project, name, preset.secret_prompt)
+    for note in preset.notes:
+        ui.info(note)
+    ui.hint("see what the credential can actually read:", f"{script} --out /tmp/probe --probe")
+    return name
+
+
+def add_api(project: Path) -> str | None:
+    base = _ask("Base URL of the API (e.g. https://api.example.com)")
+    if not base:
+        return None
+    name = project_mod.slug(_ask("Name this source (e.g. hubspot, notion, billing-api)"))
+    if not name:
+        return None
+    interval = _ask_interval(60)
+    script = project_mod.create_connector(project, name, interval_minutes=interval, api_base=base)
+    if script is None:
+        return None
+
+    _store_secret(project, name, "API token")
+    ui.warn(f"'{name}' needs the endpoints written: one collect_* function per object")
+    ui.hint("edit:", str(script))
+    return name
+
+
+def add_custom(project: Path) -> str | None:
     name = project_mod.slug(_ask("Name this source (e.g. hubspot, notion, billing-api)"))
     if not name:
         return None
@@ -190,21 +281,9 @@ def _add_custom(project: Path) -> str | None:
         return None
 
     if _confirm("Does it need a credential (API key, token)?", default=True):
-        item = project_mod.secret_item_name(project, name)
-        _why(f"It will be stored in the macOS Keychain as '{item}' — never in a file, never in chat.")
-        if _confirm("Enter it now?", default=True):
-            try:
-                value = getpass.getpass(f"Value for {item} (input hidden): ")
-            except (EOFError, KeyboardInterrupt):
-                raise Cancelled
-            if value:
-                keychain.set_secret(item, value)
-                ui.ok("stored in the Keychain:", item)
-            else:
-                ui.warn("empty value, skipped")
-        else:
-            ui.hint("store it later with:", f"brain secret set {item}")
-        ui.info(f"read it in the connector with: get_secret({item!r})")
+        _store_secret(project, name, "credential")
+        ui.info("read it in the connector with: "
+                f"get_secret({project_mod.secret_item_name(project, name)!r})")
 
     ui.warn(f"'{name}' needs code: fill in fetch_records() in")
     ui.hint("edit:", str(script))
@@ -220,12 +299,14 @@ def _step_sources(project: Path) -> list[str]:
         ui.info("already registered: " + ", ".join(e.get("name", "?") for e in existing))
 
     added: list[str] = []
+    handlers = (add_preset, add_local_folder, add_url, add_api, add_custom)
     while True:
-        choice = _choose("Add a source:", SOURCE_CHOICES, default=3 if (existing or added) else 0)
-        if choice == 3:
+        choice = _choose(
+            "Add a source:", SOURCE_CHOICES, default=DONE_CHOICE if (existing or added) else 0
+        )
+        if choice == DONE_CHOICE:
             break
-        handler = (_add_local_folder, _add_url, _add_custom)[choice]
-        name = handler(project)
+        name = handlers[choice](project)
         if name:
             added.append(name)
 
