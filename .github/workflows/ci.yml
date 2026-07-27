@@ -61,3 +61,64 @@ jobs:
       - name: Smoke test
         # Everything that runs without graphify, an LLM key or a TTY.
         run: ./scripts/smoke.sh
+
+  installer:
+    name: installer · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: bash -n install.sh
+
+      - name: Shellcheck
+        # Advisory: a finding here is worth reading, but the installer is not
+        # blocked on a linter the repo has no config for.
+        run: shellcheck install.sh || true
+        continue-on-error: true
+
+      - name: Dry run changes nothing
+        run: |
+          export HOME="$RUNNER_TEMP/dryhome"; mkdir -p "$HOME"
+          bash install.sh --dry-run --prefix "$HOME/checkout"
+          # The point of --dry-run: it must not have created any of these.
+          for path in "$HOME/checkout" "$HOME/.local/share/brainiphy" "$HOME/.local/bin" "$HOME/.zshrc"; do
+            if [ -e "$path" ]; then echo "--dry-run created $path" >&2; exit 1; fi
+          done
+
+      - name: Install, use, reinstall, uninstall
+        # --no-graphify keeps this fast and independent of a third-party
+        # package's release health; the CLI job already covers the package
+        # itself. The shape being tested here is the installer's own: venv,
+        # symlinks, profile edit, idempotency, clean removal.
+        run: |
+          export HOME="$RUNNER_TEMP/testhome"; mkdir -p "$HOME"
+          export SHELL=/bin/bash
+          printf '# pre-existing line\nexport EDITOR=vim\n' > "$HOME/.bashrc"
+
+          bash install.sh --no-graphify --prefix "$GITHUB_WORKSPACE"
+
+          test -x "$HOME/.local/bin/brain" || { echo "brain not linked" >&2; exit 1; }
+          "$HOME/.local/bin/brain" --help > /dev/null
+          "$HOME/.local/bin/brain" init "$HOME/project" > /dev/null
+          "$HOME/.local/bin/brain" status "$HOME/project" > /dev/null
+          grep -q '>>> brainiphy >>>' "$HOME/.bashrc" || { echo "PATH block missing" >&2; exit 1; }
+
+          # Running it twice must be safe.
+          bash install.sh --no-graphify --prefix "$GITHUB_WORKSPACE"
+          test "$(grep -c '>>> brainiphy >>>' "$HOME/.bashrc")" -eq 1 \
+            || { echo "PATH block duplicated on reinstall" >&2; exit 1; }
+
+          bash install.sh --uninstall --no-graphify --prefix "$GITHUB_WORKSPACE"
+          test ! -e "$HOME/.local/bin/brain" || { echo "symlink survived uninstall" >&2; exit 1; }
+          test ! -d "$HOME/.local/share/brainiphy/venv" || { echo "venv survived uninstall" >&2; exit 1; }
+          grep -q '>>> brainiphy >>>' "$HOME/.bashrc" && { echo "PATH block survived" >&2; exit 1; }
+          # The regression that mattered: uninstall must filter the profile,
+          # not truncate it.
+          grep -q 'export EDITOR=vim' "$HOME/.bashrc" \
+            || { echo "uninstall destroyed the user's profile" >&2; exit 1; }
+          echo "installer OK"

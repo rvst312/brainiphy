@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- One-line install: `curl -fsSL .../install.sh | bash`. It builds a dedicated
+  virtualenv, symlinks `brain` and `graphify` into `~/.local/bin`, adds that to
+  the shell profile in a marked block if it is missing, registers the Claude
+  Code skill, and reports whether an LLM backend is reachable. `--dry-run`
+  shows what it would do; `--uninstall` reverses all of it. An existing
+  checkout is updated with `git pull --ff-only`, and left alone entirely if it
+  has uncommitted changes.
 - `brain` (equivalently `brain new`) — the app: the seven steps of building a
   brain rendered as a checklist, each runnable in place, advancing to the next
   as they complete. Steps stay reachable out of order, and off-flow operations
@@ -56,6 +63,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Installation no longer uses `pip install --user`, which modern Homebrew and
+  system Pythons refuse outright (PEP 668, `externally-managed-environment`).
+  The virtualenv also makes "`brain` and `graphify` under one interpreter"
+  structural rather than something to check after the fact.
 - A rebuild that fails for lack of an LLM backend now explains the two ways out
   (export a key, or run `/graphify` inside Claude Code) instead of exiting
   non-zero with no explanation.

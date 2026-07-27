@@ -37,32 +37,73 @@ Most "second brain" setups die at the integration step: every data source needs 
 ## Installation
 
 ```bash
-pip3 install --user -e /path/to/brainiphy
+curl -fsSL https://raw.githubusercontent.com/rvst312/brainiphy/main/install.sh | bash
 ```
 
-This is an editable install, so edits to `src/brainiphy_cli/*.py` take effect immediately. The `brain` binary lands in your user bin directory, alongside `graphify`. If it isn't on your `PATH`:
+That installs into a dedicated virtualenv, symlinks `brain` and `graphify` into `~/.local/bin`, adds that
+directory to your shell profile if it is missing, registers the Claude Code skill, and tells you whether an
+LLM backend is reachable. Then just run:
 
 ```bash
-python3 -c "import site, pathlib; print(pathlib.Path(site.getuserbase()) / 'bin')"
+brain
 ```
 
-Add that directory to your `PATH`, then verify both tools resolve to the same interpreter:
+Two things it handles that are easy to get wrong by hand:
+
+- **PEP 668.** `pip install --user` is refused outright on a Homebrew or system Python
+  (`externally-managed-environment`), which is most Macs now. The virtualenv sidesteps it and touches nothing
+  system-wide.
+- **One interpreter for both tools.** `brain` shells out to `graphify`, so they have to run under the same
+  Python. Installing both into one venv makes that structural instead of something to verify and hope for.
+
+<details>
+<summary>Flags, and undoing it</summary>
+
+```
+--prefix DIR     where to put the checkout (default: ~/.claude/skills/brainiphy)
+--python BIN     interpreter to build the venv with (default: newest python3 >= 3.9)
+--no-graphify    skip the graphify engine
+--no-path        do not touch the shell profile
+--no-skill       do not register it as a Claude Code skill
+--uninstall      remove the venv, the symlinks, the PATH block and the skill link
+--dry-run        print what would happen, change nothing
+```
+
+Piping a script from the internet into `bash` deserves a look first — read it, or run it with `--dry-run`:
 
 ```bash
-head -1 "$(which brain)"
-head -1 "$(which graphify)"
+curl -fsSL https://raw.githubusercontent.com/rvst312/brainiphy/main/install.sh -o install.sh
+less install.sh
+bash install.sh --dry-run
 ```
 
-> [!NOTE]
-> If you have several Python installs, make sure `brain` and `graphify` are installed under the same one — `brain` shells out to `graphify` to rebuild the graph.
+The only things it changes outside its own directory are the `~/.local/bin` symlinks, a marked block in your
+shell profile (backed up before it is edited) and the skill symlink. `--uninstall` removes all three.
+
+</details>
+
+### From a checkout
+
+Working on brainiphy itself, or installing a fork:
+
+```bash
+git clone https://github.com/rvst312/brainiphy.git
+bash brainiphy/install.sh --prefix "$PWD/brainiphy"
+```
+
+An existing checkout is never clobbered: the installer updates it with `git pull --ff-only`, and skips even
+that if it has uncommitted changes. Installation is editable, so edits to `src/brainiphy_cli/*.py` take
+effect immediately.
+
+### Homebrew
+
+Not yet — it needs a tagged release to build a formula against. The curl installer is the supported route
+for now.
 
 ### As a Claude Code Skill
 
-Symlink the repo into your skills directory and the `brainiphy` skill becomes available to Claude Code:
-
-```bash
-ln -s /path/to/brainiphy ~/.claude/skills/brainiphy
-```
+The installer does this for you: the checkout lands in `~/.claude/skills/brainiphy` (or is symlinked there),
+which is all Claude Code needs to offer the `brainiphy` skill. To skip it, pass `--no-skill`.
 
 See [`SKILL.md`](SKILL.md) for the playbook Claude follows.
 
