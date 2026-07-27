@@ -1,4 +1,3 @@
-#!/usr/local/opt/python@3.11/bin/python3.11
 """Write normalized Markdown+frontmatter files that graphify ingests the same
 way it treats its own `graphify add` output — same YAML shape, same escaping.
 

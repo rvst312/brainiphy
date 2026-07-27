@@ -58,6 +58,21 @@ jobs:
       - name: Every preset is readable through the registry
         run: python -c "from brainiphy_cli import presets; [presets.PRESETS[n].text() for n in presets.names()]"
 
+      - name: No absolute interpreter in a shebang
+        # A `#!` pointing at one machine's Homebrew Python shipped in the repo
+        # once already. It is inert while a file is only imported, which is
+        # exactly why nobody notices until a connector template carries one
+        # into a client project and launchd tries to run it.
+        shell: bash
+        run: |
+          bad=$(grep -rn '^#!' src scripts install.sh | grep -v '#!/usr/bin/env ' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::shebang must be '#!/usr/bin/env <interpreter>', not an absolute path"
+            echo "$bad"
+            exit 1
+          fi
+          echo "all shebangs use env"
+
       - name: Smoke test
         # Everything that runs without graphify, an LLM key or a TTY.
         run: ./scripts/smoke.sh
