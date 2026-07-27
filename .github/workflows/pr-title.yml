@@ -1,0 +1,30 @@
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commit:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the title
+        # PRs are squash-merged, so the title becomes the commit subject on
+        # main — it has to satisfy the same convention as a commit.
+        # The title goes through the environment, never through the shell:
+        # interpolating it directly would let a PR title run commands here.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|refactor|perf|chore|ci|revert)(\([a-z0-9-]+\))?!?: .{1,72}$'
+          if [[ ! "$TITLE" =~ $pattern ]]; then
+            echo "::error::PR title does not follow Conventional Commits: $TITLE"
+            echo "Expected: <type>(<scope>): <subject>   e.g. feat(sync): rebuild the graph incrementally"
+            echo "Types: feat fix docs refactor perf chore ci revert — see CONTRIBUTING.md"
+            exit 1
+          fi
+          echo "OK: $TITLE"
