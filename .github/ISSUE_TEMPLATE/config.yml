@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How a brain is meant to be built
+    url: https://github.com/rvst312/brainiphy/blob/main/SKILL.md
+    about: The playbook the CLI follows — read this before reporting that a step is missing.
+  - name: Contributing and development setup
+    url: https://github.com/rvst312/brainiphy/blob/main/CONTRIBUTING.md
+    about: Branches, commits, running the smoke test.

@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in the brain CLI or the skill does not behave as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most surprises in this tool come from the layer underneath — graphify,
+        launchd or the Keychain. Details about which of those was involved are
+        worth more than a description of the symptom.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the exact command and its output. Redact secrets.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: From `brain init` onwards, against a scratch project if possible.
+      placeholder: |
+        1. brain init /tmp/test-brain
+        2. brain new-connector /tmp/test-brain docs --mirror ~/Documents/notes
+        3. brain sync /tmp/test-brain
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Output of these, so the interpreter question is settled up front —
+        `brain` and `graphify` must resolve to the same Python.
+      render: shell
+      placeholder: |
+        sw_vers -productVersion
+        python3 -V
+        which brain graphify
+        head -1 $(which graphify)
+        pip3 show brainiphy graphifyy | grep -E 'Name|Version|Location'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - brain new / guide (the guided flow)
+        - brain init / new-connector (scaffolding)
+        - brain sync (connectors, graph rebuild)
+        - brain connect-claude (Claude Code / Desktop)
+        - brain schedule (LaunchAgent)
+        - brain secret (Keychain)
+        - The SKILL.md playbook itself
+        - Something else
+    validations:
+      required: true
