@@ -36,10 +36,14 @@ TODO = "todo"
 # renders as a dash instead of a checkmark.
 SKIP = "skip"
 
-# Marker left by connector_template.py in a connector that has not been
-# implemented yet. Checked as source text rather than by importing the script:
-# a half-written connector may not even import cleanly.
+# Two ways a registered connector can exist without being able to run, both
+# checked as source text rather than by importing the script (a half-written
+# connector may not even import cleanly):
+#   - the stub templates leave a NotImplementedError where the fetching goes;
+#   - a preset or API template is complete but still carries the constants the
+#     installer has to supply (LOCATION_ID and friends), left at REPLACE_ME.
 UNIMPLEMENTED_MARKER = "raise NotImplementedError"
+PLACEHOLDER_RE = re.compile(r'^[A-Z_][A-Z0-9_]* = "REPLACE_ME[A-Z0-9_]*"$', re.MULTILINE)
 
 
 @dataclass
@@ -133,19 +137,32 @@ def _launch_agent(project: Path) -> Path | None:
 
 
 def unimplemented_connectors(project: Path) -> list[str]:
-    """Registered connectors whose sync.py is missing or still the untouched
-    template."""
-    pending = []
+    """Registered connectors that cannot run yet: sync.py missing, still the
+    untouched template, or holding unfilled REPLACE_ME constants."""
+    return [name for name, _ in _pending_connectors(project)]
+
+
+def _pending_connectors(project: Path) -> list[tuple[str, str]]:
+    """(name, why) for each connector that cannot run yet — the reason lets the
+    checklist say 'needs code' and 'needs LOCATION_ID' rather than lumping the
+    two together."""
+    pending: list[tuple[str, str]] = []
     for entry in _registry_entries(project):
         name = entry.get("name")
         if not name:
             continue
         script = project / "connectors" / name / "sync.py"
         if not script.exists():
-            pending.append(name)
+            pending.append((name, "no sync.py"))
             continue
-        if UNIMPLEMENTED_MARKER in script.read_text(encoding="utf-8", errors="ignore"):
-            pending.append(name)
+        text = script.read_text(encoding="utf-8", errors="ignore")
+        if UNIMPLEMENTED_MARKER in text:
+            pending.append((name, "needs code"))
+            continue
+        missing = PLACEHOLDER_RE.findall(text)
+        if missing:
+            names = ", ".join(line.split(" = ")[0] for line in missing)
+            pending.append((name, f"needs {names}"))
     return pending
 
 
@@ -213,25 +230,26 @@ def inspect(project: Path) -> BrainState:
     )
 
     # 4 -------------------------------------------------------------------
-    pending = unimplemented_connectors(project)
+    pending = _pending_connectors(project)
     steps.append(
         Step(
             4,
             "implement",
-            "Implement the custom connectors",
-            "fill in fetch_records() for anything brain could not generate on its own",
+            "Finish the custom connectors",
+            "write the fetching for anything generated from a stub, and fill in the account "
+            "details a preset needs",
             state=TODO if pending else (DONE if entries else SKIP),
             detail=(
-                "still template-only: " + ", ".join(pending)
+                "not runnable yet: " + ", ".join(f"{name} ({why})" for name, why in pending)
                 if pending
                 else (
-                    "every registered connector is implemented"
+                    "every registered connector is ready to run"
                     if entries
                     else "no connectors that need code"
                 )
             ),
             command=None,
-            extra_commands=[f"$EDITOR {short}/connectors/{name}/sync.py" for name in pending],
+            extra_commands=[f"$EDITOR {short}/connectors/{name}/sync.py" for name, _ in pending],
         )
     )
 
@@ -331,3 +349,54 @@ def render(state: BrainState, *, verbose: bool = False) -> None:
         ui.hint("keep it fresh by hand any time with:", f"brain sync {ui.short_path(state.project)}")
     elif next_step is not None:
         ui.hint("next step:", next_step.command or (next_step.extra_commands[0] if next_step.extra_commands else ""))
+
+
+def render_status(project: Path) -> None:
+    """The body of `brain status`: connectors, graph size, where the setup is.
+
+    Lives here rather than in cli.py so the menu shows exactly the same screen
+    as the command — cli.py is meant to be argparse plumbing, and a second copy
+    of this is a second thing to keep in step.
+    """
+    from brainiphy_cli import sync as sync_mod
+
+    entries = _registry_entries(project)
+    if not entries:
+        ui.info("no connectors registered yet")
+        ui.hint("add one interactively with:", f"brain new {ui.short_path(project)}")
+    else:
+        table = ui.table("connector", "interval", "state", "script")
+        for entry in entries:
+            name = entry["name"]
+            interval = float(entry.get("interval_minutes", 60))
+            due = sync_mod.is_due(project, name, interval)
+            script_ok = (project / "connectors" / name / "sync.py").exists()
+            table.add_row(
+                ui.cell(name, "brain.path"),
+                ui.cell(f"{interval:g} min"),
+                ui.cell("due now", "brain.warn") if due else ui.cell("up to date", "brain.ok"),
+                ui.cell("ok", "brain.ok") if script_ok else ui.cell("MISSING", "brain.err"),
+            )
+        ui.print_table(table)
+
+    ui.blank()
+    graph = _graph_size(project)
+    graph_json = project / "graphify-out" / "graph.json"
+    if graph:
+        ui.ok(f"graph: {graph[0]} nodes, {graph[1]} edges", graph_json)
+    elif graph_json.exists():
+        ui.warn("graph exists but could not be parsed:", graph_json)
+    else:
+        ui.warn("graph not built yet")
+        ui.hint("build it with:", f"brain sync {ui.short_path(project)}")
+
+    # Where this project sits in the overall process — the table above answers
+    # "what is the state of my connectors", this answers "what do I do next".
+    state = inspect(project)
+    ui.blank()
+    if state.complete:
+        ui.ok(f"setup complete ({state.done_count}/{len(state.steps)} steps)")
+    else:
+        ui.info(f"setup: {state.done_count}/{len(state.steps)} steps done — "
+                f"next is '{state.next_step.title}'")
+        ui.hint("see the whole process with:", f"brain guide {ui.short_path(project)}")

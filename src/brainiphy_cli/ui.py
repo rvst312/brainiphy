@@ -10,13 +10,16 @@ titles routinely contain '[' and would otherwise be eaten as markup tags.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
-from rich.console import Console
+from rich.box import ROUNDED
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
+
+APP_TITLE = "brainiphy"
 
 THEME = Theme(
     {
@@ -96,6 +99,10 @@ def short_path(value) -> str:
 
 
 def header(title: str, subtitle=None) -> None:
+    if _capturing:
+        # Inside framed(), the box already carries the title and the project
+        # path — printing them again would just be a heading above a heading.
+        return
     out.print()
     out.print(Text(title, style="brain.head"))
     if subtitle is not None:
@@ -156,5 +163,75 @@ def panel(body, title: str | None = None, style: str = "brain.info") -> None:
 @contextmanager
 def working(message: str):
     """Spinner for a long-running child process. No-ops on a non-TTY."""
+    if _capturing:
+        # Inside framed(), nothing is on screen until the block ends, so an
+        # animation would only write spinner frames into the captured text.
+        yield
+        return
     with out.status(Text(message, style="brain.step"), spinner="dots"):
         yield
+
+
+# --------------------------------------------------------------- framing ----
+# The menu draws the whole app inside a box. Commands print through the helpers
+# above without knowing that, so framed() captures their output and re-renders
+# it inside a Panel instead of asking every command to care.
+
+# A Panel costs one border character and one pad character on each side.
+_FRAME_CHROME = 4
+
+_capturing = False
+
+
+def clear() -> None:
+    out.clear()
+
+
+def app_panel(body, *, title: str | None = None, subtitle: str | None = None,
+              style: str = "brain.hint") -> Panel:
+    """The app's box. One place so every screen has the same chrome."""
+    return Panel(
+        body,
+        title=Text(title or APP_TITLE, style="brain.head"),
+        title_align="left",
+        subtitle=Text(subtitle, style="brain.info") if subtitle else None,
+        subtitle_align="right",
+        border_style=style,
+        box=ROUNDED,
+        padding=(1, 2),
+    )
+
+
+@contextmanager
+def framed(title: str, subtitle: str | None = None, *, style: str = "brain.hint"):
+    """Run a block and render everything it printed inside the app box.
+
+    Both consoles are captured, so a `ui.error()` on stderr lands inside the
+    box with everything else instead of escaping it. The consoles are narrowed
+    while capturing, otherwise text is wrapped to the full terminal width and
+    then wraps a second time inside the border.
+
+    Not for long-running work: nothing appears until the block finishes. Stream
+    those unframed — live progress beats a tidy border.
+    """
+    global _capturing
+
+    saved_out, saved_err = out.width, err.width
+    out.width = err.width = max(20, saved_out - _FRAME_CHROME)
+    _capturing = True
+
+    stack = ExitStack()
+    captured_out = stack.enter_context(out.capture())
+    captured_err = stack.enter_context(err.capture())
+    try:
+        yield
+    finally:
+        # Close the captures and restore the terminal before printing, even if
+        # the block raised — otherwise a failure prints nothing at all.
+        stack.close()
+        _capturing = False
+        out.width, err.width = saved_out, saved_err
+
+        parts = [chunk.strip("\n") for chunk in (captured_out.get(), captured_err.get()) if chunk.strip()]
+        body = Group(*(Text.from_ansi(part) for part in parts)) if parts else Text("(no output)", style="brain.info")
+        out.print(app_panel(body, title=title, subtitle=subtitle))
