@@ -30,6 +30,11 @@ class SyncReport:
     graph_rebuilt: bool = False
 
 
+# Distinguishes "graphify has nothing to do" from "graphify cannot run" — the
+# second needs an actionable message, not a bare non-zero exit.
+_NO_KEY_MARKERS = ("no LLM API key", "requires ANTHROPIC_API_KEY", "API key")
+
+
 def find_graphify() -> str:
     """Locate the graphify CLI: PATH first, then this interpreter's --user
     bin dir (matches wherever `pip install --user graphifyy` put it)."""
@@ -75,14 +80,70 @@ def _mark_ran(project: Path, name: str) -> None:
     state_file.write_text(json.dumps({"last_run": datetime.now(timezone.utc).isoformat()}))
 
 
-def run(project: Path, *, dry_run: bool = False) -> SyncReport:
+def build_graph(project: Path, *, full: bool = False) -> tuple[bool, str]:
+    """Rebuild the graph. Returns (succeeded, what-was-run).
+
+    Two different graphify commands, and picking the wrong one silently does
+    nothing:
+      - `graphify extract` is the full pass. It is the only one that indexes
+        documents (Markdown, PDFs, …), which is what a business brain is made
+        of, and it needs an LLM backend to do it.
+      - `graphify update` only re-extracts *code* files with a local AST pass,
+        no API key. Cheap, but a no-op on a corpus of documents.
+
+    So: full pass the first time (and whenever asked), incremental afterwards.
+
+    --no-gitignore is not optional here. graphify honors .gitignore, and
+    `brain init` puts raw/ in it (mirrored content should not be committed) —
+    without this flag graphify skips the entire corpus and reports finding
+    nothing. .graphifyignore still applies, which is what keeps connectors/
+    out of the index.
+    """
+    graphify = find_graphify()
+    graph_json = project / "graphify-out" / "graph.json"
+    first_build = not graph_json.exists()
+
+    if full or first_build:
+        cmd = [graphify, "extract", str(project), "--no-gitignore"]
+    else:
+        cmd = [graphify, "update", str(project)]
+    # Short label for the report table — the full command line would wrap it.
+    label = f"graphify {cmd[1]}"
+
+    with ui.working(f"rebuilding graph: {label} {ui.short_path(project)}"):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    ui.raw(result.stdout)
+
+    if result.returncode == 0 and graph_json.exists():
+        return True, label
+
+    combined = result.stdout + result.stderr
+    ui.raw(result.stderr, stderr=True)
+
+    if any(marker in combined for marker in _NO_KEY_MARKERS):
+        # Not a brainiphy failure: indexing documents needs a model. Both ways
+        # out are worth spelling out, because the second one costs nothing.
+        ui.error("graphify needs an LLM backend to index documents")
+        ui.hint("either export a key first, e.g.:", "export ANTHROPIC_API_KEY=…   # or GEMINI_API_KEY, OPENAI_API_KEY…")
+        ui.hint("or let Claude Code do the extraction — open the project and run:", "/graphify")
+        return False, label
+
+    ui.error(f"{label} failed")
+    return False, label
+
+
+def run(project: Path, *, dry_run: bool = False, full: bool = False) -> SyncReport:
     project = project.resolve()
     connectors = load_registry(project)
     report = SyncReport()
 
     if not connectors:
         ui.warn("0 connectors registered in", project / "connectors/registry.yaml")
-        return report
+        # A brain can still have content without connectors (`graphify add
+        # <url>` writes straight into raw/), so a --full run keeps going and
+        # rebuilds; a plain one has nothing to do.
+        if not full:
+            return report
 
     any_ran = False
     dry_table = ui.table("connector", "interval", "state", "script") if dry_run else None
@@ -135,18 +196,15 @@ def run(project: Path, *, dry_run: bool = False) -> SyncReport:
         ui.print_table(dry_table)
         return report
 
-    if any_ran:
-        graphify = find_graphify()
-        with ui.working(f"rebuilding graph: graphify update {project}"):
-            result = subprocess.run([graphify, "update", str(project)], capture_output=True, text=True)
-        ui.raw(result.stdout)
-        if result.returncode != 0:
-            ui.raw(result.stderr, stderr=True)
-            ui.error("graphify update failed")
-            report.errors.append("graphify update failed")
-        else:
+    # A --full run rebuilds even when no connector was due: the corpus may have
+    # changed underneath (a mirrored folder edited by hand, `graphify add`).
+    if any_ran or full:
+        succeeded, label = build_graph(project, full=full)
+        if succeeded:
             ui.ok("graph rebuilt")
             report.graph_rebuilt = True
+        else:
+            report.errors.append(f"{label} failed")
     elif not report.errors:
         ui.info("nothing due, graph left as-is")
 
