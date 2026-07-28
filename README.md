@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/brainiphy.png" alt="brainiphy" width="100%">
+<img src="docs/brainiphy.png" alt="brainiphy" width="80%">
 
 </br>
 </br>
