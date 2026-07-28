@@ -2,7 +2,8 @@
 
 <img src="docs/brainiphy.png" alt="brainiphy" width="100%">
 
-<br>
+</br>
+</br>
 
 **Turn a business's scattered data into a queryable knowledge graph — and plug it straight into Claude.**
 
