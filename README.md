@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/brainiphy.png" alt="brainiphy" width="560">
+<img src="docs/brainiphy.png" alt="brainiphy" width="460">
 
 **Turn a business's scattered data into a queryable knowledge graph — and plug it straight into Claude.**
 
