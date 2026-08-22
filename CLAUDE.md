@@ -33,9 +33,11 @@ brain guide /tmp/some-test-project
 brain status /tmp/some-test-project
 ```
 
-A generated API/preset connector can be exercised without a full sync: `<project>/connectors/<name>/sync.py
---out /tmp/probe --probe` hits the real API and reports which objects the credential can read, writing
-nothing. `--only <collector>` narrows it further. That is the fastest way to check a change to `httpclient.py`
+A generated API/preset connector can be exercised without a full sync: `"$(head -1 "$(which brain)" | cut -c3-)"
+<project>/connectors/<name>/sync.py --out /tmp/probe --probe` hits the real API and reports which objects the
+credential can read, writing nothing. Name the interpreter like that rather than running the script directly —
+its shebang is `env python3`, which on this machine is *not* the install `brainiphy_cli` lives under, so the
+script dies on its own import. `--only <collector>` narrows it further. That is the fastest way to check a change to `httpclient.py`
 or `collect.py` against a live API.
 
 The app (`brain` / `brain new`) can't be exercised that way — it refuses without a TTY, and piping answers into it through
@@ -47,12 +49,16 @@ Driving it means feeding keypresses. Use `app.run()` with
 `keys.supported`, `picker.is_interactive` and `keys.read_key` replaced, feeding an iterator of key names, and
 stub `ui.clear` so the screens stay in the scrollback:
 ```python
-from brainiphy_cli import keys, picker, menu, ui
+from brainiphy_cli import keys, picker, app, ui
 keys.supported = lambda: True; picker.is_interactive = lambda: True; ui.clear = lambda: None
-seq = iter(["1", " ", "q"])          # open Status, dismiss it, quit
+seq = iter(["enter", "q"])           # run the current step, then quit
 keys.read_key = lambda: next(seq)
-menu.run("/path/to/brain")
+app.run("/path/to/brain")
 ```
+Count the keypresses carefully: `_pause()` after a framed action reads one, and so does `_prepare()` on a folder
+that was not scaffolded yet — an off-by-one shows up as a screen redrawing instead of advancing, which looks like
+a bug in the code under test and is not. Replace `prompt.ask`/`confirm`/`choose`/`ask_path` with scripted answers
+for anything that asks questions (`actions.py`, the picker's `/` path).
 
 ## Architecture
 
@@ -70,6 +76,11 @@ A subparser marked `set_defaults(framed=True)` has its output drawn inside the a
 - Owns no operations. Each step's action calls the same `project.py`/`sync.py`/`actions.py` function the equivalent named command calls.
 - The step list is **not** written here — it comes from `steps.inspect()`, and `STEP_ACTIONS` only maps a step's `key` to how it is performed. Adding or reordering a step stays a single edit in `steps.py`; the flow follows.
 - Steps stay reachable out of order on purpose. A new brain wants the sequence; a brain six months old wants "add one more source", and making it walk the flow to get there would be worse than the menu this replaced.
+- `_prepare()` scaffolds a freshly chosen folder *before* the checklist appears, so picking a folder lands you on "Add data sources" rather than on a "Scaffold the project" checkbox. Choosing where the brain goes and preparing it are one intention; it is idempotent, writes only registry.yaml and the two ignore files, and prints what it did. Step 2 stays in the checklist for `brain init` and for re-running it. (This reverses an earlier rule that the flow must never perform a step implicitly — the checkbox was the first thing a new user hit and it read as busywork.)
+- `SOURCE_KINDS` labels a source by **what it is** — `local folder`, `preset`, `http api`, `url`, `custom` — not by a sentence about it, and those strings match the `type` recorded in registry.yaml, so the label you pick is the label you see in every later screen. Each carries a badge (`ready to run` / `needs code` / `one-off`) because whether a choice leaves you with a working connector or with homework is what you want to know *before* choosing.
+- `_choose()` takes `(label, hint)` or `(label, hint, badge)` plus an optional `intro`; the source screen passes `_registered_summary()` as the intro so adding a source visibly lands somewhere. Hints go through `_append_wrapped()` for the same reason the step explanations do.
+- No screen is a dead end. Step 4 used to print two `$EDITOR` lines and stop — it now opens the connector in `$EDITOR` or runs the API probe. `_run_probe()` invokes the script with `sys.executable`, **not** its `#!/usr/bin/env python3` shebang: `brain` may be installed under an interpreter `env python3` does not resolve to, and then every connector dies on `import brainiphy_cli`. `sync.py` runs them the same way for the same reason.
+- `_resolve_project(force_pick=True)` is what "Change project" passes. Without it the cwd shortcut answers with the brain you are already standing in, and the tool silently does nothing.
 - `_append_wrapped()` exists because Rich wraps to the panel width but starts continuation lines at column 0, so a step's explanation collides with the list above it. Wrap against `ui.out.width - ui.FRAME_CHROME - indent` instead.
 - Actions render through `ui.framed()`, which boxes their output. `sync` deliberately does not — nothing appears until a framed block ends, and watching a sync run matters more than the border.
 - The credentials screen reads `SECRET_ITEM` out of the connector's `sync.py` rather than assuming `secret_item_name()`; a connector may legitimately point at a differently-named item, and writing the conventional one instead would store a credential the script never reads.
@@ -80,9 +91,9 @@ A subparser marked `set_defaults(framed=True)` has its output drawn inside the a
 - `os.read(fd, 1)`, never `sys.stdin.read(1)` — `sys.stdin` buffers in userspace, so a whole escape sequence arriving at once sits in that buffer, `select()` on the fd reports nothing pending, and an arrow key is misread as Esc plus two stray characters. Holding an arrow key down does precisely this.
 - `_pushback` — the byte read while disambiguating `Esc` from an escape sequence has already left the fd and cannot be un-read, so Esc-then-another-key would swallow the second key.
 
-**`src/brainiphy_cli/actions.py`** — the interactive operations a step performs (`add_preset`, `add_local_folder`, `add_url`, `add_api`, `add_custom`, `ensure_graphify`, `_store_secret`) plus the `Cancelled` exception and the prompt wrappers that raise it. This was `wizard.py` until the flow moved into `app.py`: the step *ordering* went with it, the operations stayed. It must not import `app.py` — the dependency runs one way.
+**`src/brainiphy_cli/actions.py`** — the interactive operations a step performs (`add_preset`, `add_local_folder`, `add_url`, `add_api`, `add_custom`, `ensure_graphify`, `_store_secret`) plus the `Cancelled` exception and the prompt wrappers that raise it. This was `wizard.py` until the flow moved into `app.py`: the step *ordering* went with it, the operations stayed. It must not import `app.py` — the dependency runs one way. Two rules earned by watching people get stuck: `add_local_folder` **browses** with `picker.pick_project_dir()` rather than demanding a pasted path (`/` inside the picker still accepts one), and `add_url` calls `ensure_graphify()` when graphify is missing instead of erroring out — being sent back to step 1 with no way to act from where you are is the shape of dead end this flow is meant not to have.
 
-**`src/brainiphy_cli/project.py`** — every operation performed *on a target project*: `scaffold()`, `create_connector()`, `connect_claude()`, `schedule()`, plus the registry read/write helpers and `find_exe()`. `create_connector()` picks one of four templates (`preset` → `mirror` → `api_base` → the bare stub) and fills them in through `set_constant()`, which rewrites a whole `NAME = …` line rather than doing string surgery on a placeholder — so a value only has to be a valid Python literal, not escape-safe inside quotes. `--var` is applied last and can therefore override a computed default such as `SECRET_ITEM`. cli.py, app.py and actions.py all call these. Each prints its own progress through `ui` and returns a plain bool/path; exit codes are cli.py's job.
+**`src/brainiphy_cli/project.py`** — every operation performed *on a target project*: `scaffold()`, `create_connector()`, `connect_claude()`, `schedule()`, plus the registry read/write helpers, `find_exe()`, and the connector-type vocabulary (`LOCAL_FOLDER`/`HTTP_API`/`CUSTOM`, `type_label()`). `create_connector()` records the kind it built as `type:` in registry.yaml — a preset stores its own name (`gohighlevel` identifies a source far better than the generic `http api` would), everything else stores one of the three constants. `type_label()` falls back to reading the generated script (`MIRROR_SOURCE` → local folder, `BASE_URL` → http api) so brains created before the field existed don't render a column of dashes; keep that fallback when adding a type. `create_connector()` picks one of four templates (`preset` → `mirror` → `api_base` → the bare stub) and fills them in through `set_constant()`, which rewrites a whole `NAME = …` line rather than doing string surgery on a placeholder — so a value only has to be a valid Python literal, not escape-safe inside quotes. `--var` is applied last and can therefore override a computed default such as `SECRET_ITEM`. cli.py, app.py and actions.py all call these. Each prints its own progress through `ui` and returns a plain bool/path; exit codes are cli.py's job.
 
 **`src/brainiphy_cli/prompt.py`** — `ask` / `confirm` / `choose` / `ask_path`, on the same Rich console as `ui` (a prompt drawn on a different console doesn't line up with the output around it). Every one returns `None` when the user hits Ctrl-C/Ctrl-D, so cancellation is an ordinary value instead of an exception at each call site. `ui.py` stays output-only.
 
@@ -94,7 +105,7 @@ A subparser marked `set_defaults(framed=True)` has its output drawn inside the a
 - Rich already drops color for non-TTY output and honors `NO_COLOR`; don't add a `--no-color` flag for it.
 - `framed()` is how the menu puts the whole app in a box without every command knowing about it: it captures **both** consoles (so a `ui.error()` on stderr lands inside the border rather than escaping it), narrows them by the panel's 4 chrome columns first (otherwise text wraps to the terminal width and then wraps again inside the border), and restores everything in a `finally` so a raised exception still prints what was produced. `working()` no-ops while capturing — a spinner would only write animation frames into the captured text. Don't wrap long-running work in it: nothing appears until the block ends.
 
-**`src/brainiphy_cli/sync.py`** — the orchestrator `brain sync` calls. Deliberately has no notion of "connector types": every connector is just an executable script conforming to a contract (see below), so adding support for a new kind of data source means writing a new `sync.py` in the target project, never extending this module. Key logic:
+**`src/brainiphy_cli/sync.py`** — the orchestrator `brain sync` calls. Deliberately has no notion of "connector types" *at run time*: every connector is just an executable script conforming to a contract (see below), so adding support for a new kind of data source means writing a new `sync.py` in the target project, never extending this module. The `type:` field in registry.yaml is display metadata only — `project.type_label()`, imported lazily inside `run()` to draw the `--dry-run` table. Nothing here branches on it, and nothing should start to. Key logic:
 - `load_registry()` reads `<project>/connectors/registry.yaml`.
 - `is_due()` / `_mark_ran()` track last-run timestamps per connector in `<project>/connectors/state/<name>.json` — this is how polling intervals are enforced across separate `brain sync` invocations (e.g. from a LaunchAgent).
 - `run()` shells out to each due connector's `sync.py --out <project>/raw/<name>/`, then calls `build_graph()` once at the end if anything actually ran or `full=True` (not on every invocation — avoids needless rebuilds).
@@ -126,7 +137,11 @@ A subparser marked `set_defaults(framed=True)` has its output drawn inside the a
 
 **`src/brainiphy_cli/keychain.py`** — thin wrapper over `/usr/bin/security` (macOS Keychain generic passwords). `get_secret()` is the only thing connector scripts should call; `set_secret()` is for `brain secret set` itself. Secrets never touch `registry.yaml` or chat context — this boundary is intentional, don't add a code path that lets a secret value flow through an argument or a file brain writes.
 
-**`src/brainiphy_cli/picker.py`** — the directory browser (`pick_project_dir()`), used by `cmd_init` with no path and by the menu when the cwd is not already a brain. This is the first screen most people see, so it wears the same chrome as the menu: arrow-key navigation inside `ui.app_panel`, scrolling viewport, and an "already a brain" marker next to folders that are scaffolded. It only creates a folder after an explicit confirmation.
+**`src/brainiphy_cli/picker.py`** — the directory browser (`pick_project_dir()`), used by `cmd_init` with no path, by the app when the cwd is not already a brain, and by `actions.add_local_folder` to choose a source folder. This is the first screen most people see, so it wears the same chrome as the app: arrow-key navigation inside `ui.app_panel`, scrolling viewport, and an "already a brain" marker next to folders that are scaffolded. It only creates a folder after an explicit confirmation.
+
+The two things a person came here to do — "use this folder", "create a new one" — are **rows of the list**, pinned above the folders, and `↵` activates whichever row is highlighted. They used to be the hidden keys `a` and `n` while `↵` descended into a folder, which meant the most obvious key did the one thing nobody wanted and selecting a folder was undiscoverable. `→` is what descends now; `a`/`n` still work for anyone who learned them. `_action_rows()` decides how many pinned rows there are, and every cursor↔folder index conversion goes through `len(actions)` — do not hardcode 2, `allow_new=False` drops one.
+
+`pick_project_dir()` takes `title` / `purpose` / `allow_new` because it now picks two different kinds of folder: `purpose` is the noun in the confirmation ("Use ~/x as the **brain**?" vs "as the **source**?"), and `allow_new=False` hides the create-a-folder row when the caller needs a folder that already has content in it.
 
 Two implementations, and the second is not dead code: `_pick_navigable` needs raw mode, so when `keys.supported()` is false it falls back to `_pick_typed`, the original numbered/typed loop that needs only line input. Losing the picker altogether would make `brain init` with no argument unusable.
 
@@ -138,7 +153,7 @@ Two implementations, and the second is not dead code: `_pick_navigable` needs ra
 
 `brain init <project>` and friends produce, inside the *target* business/client project (not this repo):
 ```
-<project>/connectors/registry.yaml       # which connectors exist + interval_minutes
+<project>/connectors/registry.yaml       # which connectors exist + type + interval_minutes
 <project>/connectors/<name>/sync.py      # one script per data source, from connector_template.py
 <project>/connectors/state/<name>.json   # last-run timestamps, drives is_due()
 <project>/raw/<name>/                    # connector output (normalized Markdown), graphify ingests from here

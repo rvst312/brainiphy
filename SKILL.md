@@ -45,6 +45,9 @@ brain new-connector <project> <name> [--interval-minutes N]
                                                   template depends on the flag — see step 4 for the order
                                                   to try them in. --var fills a constant in the generated
                                                   file (repeatable); it can also override SECRET_ITEM.
+                                                  The registry entry records the kind as `type:`
+                                                  (local-folder / http-api / custom, or the preset's own
+                                                  name); it is display metadata, nothing branches on it.
 brain sync [project] [--dry-run] [--full]       run due connectors, rebuild the graph if anything changed.
                                                   --full forces `graphify extract` (see "Building the graph")
 brain connect-claude [project] [--desktop] [--trust-desktop]
@@ -106,8 +109,12 @@ Work down this list and stop at the first one that fits — each rung costs mean
    ```
    Then, **before the first sync**, run the generated script with `--probe`. It reports which objects the credential can actually read, writing nothing:
    ```
-   <project>/connectors/<name>/sync.py --out /tmp/probe --probe
+   "$(head -1 "$(which brain)" | cut -c3-)" <project>/connectors/<name>/sync.py --out /tmp/probe --probe
    ```
+   Name the interpreter, as above, rather than running the script directly: its shebang is `env python3`, and
+   on a machine with several Python 3 installs that need not be the one `brainiphy_cli` is installed under —
+   the script then dies on its own import. `brain new-connector` prints the exact command with the right
+   interpreter already filled in, and step 4 of the app runs it for you.
    Expect some objects to come back "no scope" — a vendor token carries only the scopes it was issued with, and no API reports which those are, so this is discovery, not failure. Tell the user which objects are missing and what widening the token would add; it starts working on the next sync with no code change.
 2. **Local folder already on disk** → mirror it, don't symlink it: graphify does not follow symlinks and there is no flag to enable it (verified against its `detect.py`: `follow_symlinks` defaults to `False`, no CLI wiring). One command, nothing to implement:
    ```
