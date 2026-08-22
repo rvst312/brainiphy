@@ -58,6 +58,51 @@ GRAPHIFYIGNORE_ENTRIES = [
 ]
 
 
+# What kind of source a connector pulls from, recorded in registry.yaml as
+# `type:` and shown wherever connectors are listed. It is display metadata, not
+# behavior: `brain sync` still just executes sync.py and has no notion of
+# connector types (see sync.py). It exists because "crm, docs, billing" tells
+# nobody what those three actually are, and the answer used to be readable only
+# by opening the generated script.
+LOCAL_FOLDER = "local-folder"
+HTTP_API = "http-api"
+CUSTOM = "custom"
+
+TYPE_LABELS = {
+    LOCAL_FOLDER: "local folder",
+    HTTP_API: "http api",
+    CUSTOM: "custom",
+}
+
+
+def type_label(entry: dict, project: Path | None = None) -> str:
+    """Human-readable type for a registry entry.
+
+    Falls back to reading the generated script for connectors created before
+    `type:` was recorded, so an existing brain does not show a column of
+    dashes. A preset stores its own name as the type — "gohighlevel" says more
+    than "http api" does.
+    """
+    kind = entry.get("type")
+    if not kind and project is not None:
+        kind = _infer_type(project, entry.get("name", ""))
+    if not kind:
+        return "—"
+    return TYPE_LABELS.get(kind, kind)
+
+
+def _infer_type(project: Path, name: str) -> str | None:
+    script = project / "connectors" / name / "sync.py"
+    if not name or not script.exists():
+        return None
+    text = script.read_text(encoding="utf-8", errors="ignore")
+    if "MIRROR_SOURCE" in text:
+        return LOCAL_FOLDER
+    if "BASE_URL" in text:
+        return HTTP_API
+    return CUSTOM
+
+
 def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "project"
 
@@ -227,13 +272,23 @@ def create_connector(
     if missing:
         ui.warn("still to fill in before it can run: " + ", ".join(missing))
 
+    # A preset records its own name as the type: "gohighlevel" identifies the
+    # source far better than the generic "http api" it would otherwise get.
+    kind = (
+        chosen.name if chosen
+        else LOCAL_FOLDER if mirror
+        else HTTP_API if api_base
+        else CUSTOM
+    )
+
     entries = load_registry_entries(project)
     if any(e.get("name") == name for e in entries):
         ui.info(f"{name} was already in registry.yaml, not duplicating it")
     else:
-        entries.append({"name": name, "interval_minutes": interval_minutes})
+        entries.append({"name": name, "type": kind, "interval_minutes": interval_minutes})
         write_registry_entries(project, entries)
-        ui.ok(f"registered {name} in registry.yaml, every {interval_minutes:g} min")
+        ui.ok(f"registered {name} ({TYPE_LABELS.get(kind, kind)}) in registry.yaml, "
+              f"every {interval_minutes:g} min")
 
     return script_path
 

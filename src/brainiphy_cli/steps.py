@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 from rich.text import Text
 
-from brainiphy_cli import ui
+from brainiphy_cli import project as project_mod, ui
 
 DONE = "done"
 TODO = "todo"
@@ -221,7 +221,9 @@ def inspect(project: Path) -> BrainState:
             "one connector per system that feeds the brain: a folder, a URL, a CRM",
             state=DONE if has_sources else TODO,
             detail=(
-                f"{len(entries)} connector(s): " + ", ".join(e.get("name", "?") for e in entries)
+                f"{len(entries)} connector(s): " + ", ".join(
+                    f"{e.get('name', '?')} ({project_mod.type_label(e, project)})" for e in entries
+                )
                 if entries
                 else ("no connectors, but the graph already has content" if has_sources else "no sources yet")
             ),
@@ -365,7 +367,7 @@ def render_status(project: Path) -> None:
         ui.info("no connectors registered yet")
         ui.hint("add one interactively with:", f"brain new {ui.short_path(project)}")
     else:
-        table = ui.table("connector", "interval", "state", "script")
+        table = ui.table("connector", "type", "interval", "state", "script")
         for entry in entries:
             name = entry["name"]
             interval = float(entry.get("interval_minutes", 60))
@@ -373,6 +375,7 @@ def render_status(project: Path) -> None:
             script_ok = (project / "connectors" / name / "sync.py").exists()
             table.add_row(
                 ui.cell(name, "brain.path"),
+                ui.cell(project_mod.type_label(entry, project)),
                 ui.cell(f"{interval:g} min"),
                 ui.cell("due now", "brain.warn") if due else ui.cell("up to date", "brain.ok"),
                 ui.cell("ok", "brain.ok") if script_ok else ui.cell("MISSING", "brain.err"),

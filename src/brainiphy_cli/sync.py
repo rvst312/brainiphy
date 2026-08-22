@@ -146,7 +146,15 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False) -> SyncRepo
             return report
 
     any_ran = False
-    dry_table = ui.table("connector", "interval", "state", "script") if dry_run else None
+    if dry_run:
+        # Deferred: project.py imports this module, so the type label — pure
+        # display metadata, unused by the run itself — comes in here rather
+        # than at the top.
+        from brainiphy_cli import project as project_mod
+
+        dry_table = ui.table("connector", "type", "interval", "state", "script")
+    else:
+        dry_table = None
 
     for entry in connectors:
         name = entry["name"]
@@ -157,6 +165,7 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False) -> SyncRepo
         if dry_run:
             dry_table.add_row(
                 ui.cell(name, "brain.path"),
+                ui.cell(project_mod.type_label(entry, project)),
                 ui.cell(f"{interval:g} min"),
                 ui.cell("would run", "brain.warn") if due else ui.cell("not due", "brain.info"),
                 ui.cell("ok", "brain.ok") if script.exists() else ui.cell("MISSING sync.py", "brain.err"),
