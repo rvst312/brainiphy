@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import getpass
 import subprocess
+import sys
 from pathlib import Path
 
 from rich.text import Text
@@ -106,7 +107,22 @@ def ensure_graphify() -> None:
 
 
 def add_local_folder(project: Path) -> str | None:
-    source = _ask_path("Which folder? (paste the path)")
+    _why("The folder is mirrored into the brain on every sync — nothing to write.")
+    # Browse rather than demand a pasted path: this is the same picker that
+    # chose the project folder, and a person adding a client's Drive mirror
+    # rarely has its path on the clipboard. `/` inside it still takes a typed
+    # path, so pasting is not lost.
+    if picker.is_interactive():
+        source = picker.pick_project_dir(
+            start=Path.home(),
+            title="which folder feeds this brain?",
+            purpose="source",
+            allow_new=False,
+        )
+    else:
+        source = _ask_path("Which folder? (paste the path)")
+    if source is None:
+        raise Cancelled
     if not source.is_dir():
         ui.error("that is a file, not a folder:", source)
         return None
@@ -122,14 +138,22 @@ def add_local_folder(project: Path) -> str | None:
 
 
 def add_url(project: Path) -> str | None:
+    _why("Fetched once, right now — a URL is a snapshot, not a connector that re-syncs.")
     url = _ask("Which URL?")
     if not url:
         return None
     try:
         graphify = project_mod.find_exe("graphify")
     except FileNotFoundError:
-        ui.error("graphify is not installed, so it cannot fetch that URL")
-        return None
+        # Don't stop at "graphify is not installed" — that is step 1, and being
+        # sent back to it with no way to act was one of the dead ends.
+        ui.warn("graphify is not installed, and it is what fetches the URL")
+        ensure_graphify()
+        try:
+            graphify = project_mod.find_exe("graphify")
+        except FileNotFoundError:
+            ui.error("still not installed — install it, then add the URL again")
+            return None
 
     with ui.working(f"graphify add {url}"):
         result = subprocess.run([graphify, "add", url], cwd=project, capture_output=True, text=True)
@@ -141,6 +165,8 @@ def add_url(project: Path) -> str | None:
     # graphify add does not rebuild the graph, so this content only lands in it
     # at step 5 — which always runs, hence no update here.
     ui.ok("fetched into the project")
+    ui.info("it will not appear in the connector list — nothing re-fetches it. "
+            "Add the URL again to refresh it.")
     return None
 
 
@@ -201,7 +227,11 @@ def add_preset(project: Path) -> str | None:
         _store_secret(project, name, preset.secret_prompt)
     for note in preset.notes:
         ui.info(note)
-    ui.hint("see what the credential can actually read:", f"{script} --out /tmp/probe --probe")
+    # Step 4 of the flow runs this for you; the command is here for anyone who
+    # would rather do it from a shell. sys.executable, not the script's shebang
+    # — see cli._probe_command.
+    ui.hint("see what the credential can actually read:",
+            f"{sys.executable} {script} --out /tmp/probe --probe")
     return name
 
 

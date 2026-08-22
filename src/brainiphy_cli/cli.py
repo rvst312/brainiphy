@@ -111,6 +111,18 @@ def _parse_vars(pairs: list[str] | None) -> dict[str, str] | None:
     return variables
 
 
+def _probe_command(script_path: Path) -> str:
+    """The exact `--probe` command line to paste, with the interpreter named.
+
+    Not `<script> --probe`: the generated shebang is `env python3`, which on a
+    machine with several Python 3 installs need not be the one `brain` (and
+    therefore `brainiphy_cli`) lives under. sync.py runs connectors with
+    sys.executable for the same reason; a hint that fails to import is worse
+    than no hint.
+    """
+    return f"{sys.executable} {script_path} --out /tmp/probe --probe"
+
+
 def cmd_new_connector(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     name = args.name
@@ -159,8 +171,12 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
             ui.info(note)
         ui.hint("store the credential:", f"brain secret set {secret_item}")
         # --probe before the first real sync: it reports which objects the
-        # credential can actually read, without writing anything.
-        ui.hint("then see what it can read:", f"{script_path} --out /tmp/probe --probe")
+        # credential can actually read, without writing anything. Spell out the
+        # interpreter rather than relying on the script's `env python3` shebang
+        # — brain may be installed under one that `python3` does not resolve to,
+        # and then the hint fails on `import brainiphy_cli`. This is the same
+        # interpreter sync.py uses to run connectors.
+        ui.hint("then see what it can read:", _probe_command(script_path))
         ui.hint("then pull it in:", f"brain sync {short}")
         return 0
 
@@ -168,7 +184,7 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
         ui.hint("write one collect_* function per object, then list it in COLLECTORS:",
                 str(script_path))
         ui.hint("store the credential:", f"brain secret set {secret_item}")
-        ui.hint("check what it can read:", f"{script_path} --out /tmp/probe --probe")
+        ui.hint("check what it can read:", _probe_command(script_path))
         return 0
 
     ui.hint("fill in fetch_records() in:", str(script_path))
