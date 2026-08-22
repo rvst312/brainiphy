@@ -163,21 +163,34 @@ Output is rendered with [Rich](https://github.com/Textualize/rich): colored stat
 
 ### `brain new [project]`
 
-The guided setup. Seven steps, each explained as it happens, each skippable:
+The guided setup, and the front door: a checklist of the seven steps that knows which ones this brain has
+already done, opens on the one you're on, and advances as you finish them. Steps stay reachable out of order —
+six months later you just want "add one more source".
 
-1. **Where the brain lives** — the interactive folder picker, or the path you passed
-2. **graphify** — checks it's installed, offers to install it
-3. **Scaffolding** — `registry.yaml`, `.gitignore`, `.graphifyignore`
-4. **Sources** — add as many as you like, in a loop:
-   - *a folder on this Mac* → generates a complete rsync connector, nothing to write
-   - *a public URL* → runs `graphify add` for you
-   - *an API, CRM, anything else* → generates the connector template, and offers to store its credential in the Keychain right away
+First run, in order:
+
+1. **Pick the folder** — browse to it, or make a new one; `↵` takes whichever row is highlighted
+   (*Use this folder* / *Create a new folder here* / a folder to open with `→`)
+2. **It gets prepared right there** — `registry.yaml`, `.gitignore`, `.graphifyignore` — and drops you straight
+   on the next thing
+3. **Add a source**, by type, as many as you like:
+
+   | type | what it is | what's left to do |
+   |---|---|---|
+   | `local folder` | a folder on this Mac, mirrored on every sync | nothing — ready to run |
+   | `preset` | a system brainiphy ships a finished connector for | the account id and the credential |
+   | `http api` | a REST API: retries, pagination and scopes handled | one `collect_*` function per object |
+   | `url` | a public web page | nothing — but it's a one-off, not a connector |
+   | `custom` | a database, a local export, anything else | `fetch_records()` |
+
+   The type you pick is recorded in `registry.yaml` and shown everywhere the connector appears afterwards.
+4. **Finish the connectors** — the ones that need code, opened in `$EDITOR`, or probed against the live API to
+   see what the credential can actually read
 5. **First build** — runs the connectors and indexes everything
 6. **Claude** — Claude Code, and optionally a Desktop MCP server
 7. **Schedule** — the LaunchAgent that keeps it fresh
 
-It prints the `brain guide` checklist on the way out, so anything it couldn't do for you (a `fetch_records()` to
-implement, a step you skipped) is spelled out with the command to finish it.
+`t` opens the tools (sync, full rebuild, status, credentials, presets, change project).
 
 Needs a terminal — it asks questions. In a script, use the individual commands.
 
@@ -223,7 +236,8 @@ When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defau
 
 ### `brain new-connector <project> <name> [--interval-minutes N] [--mirror FOLDER]`
 
-Writes `connectors/<name>/sync.py` and registers it in `registry.yaml` with the given interval (default: 60).
+Writes `connectors/<name>/sync.py` and registers it in `registry.yaml` with its type and the given interval
+(default: 60).
 
 ```bash
 brain new-connector ~/clients/acme hubspot --interval-minutes 30
@@ -329,7 +343,7 @@ Each record needs `id`, `title`, and `body`; any other keys are written into the
 3. **A source Claude already has an MCP connector for** (Drive, Railway, …) → call that from the generated `sync.py` rather than building fresh auth.
 4. **Anything else** (CRM, bespoke API) → a full connector, as above.
 
-`brain new` asks which of these a source is and does 1 and 2 for you.
+`brain new` asks which type a source is, does 1 and 2 for you, and records the answer as the connector's `type`.
 
 ## Project layout
 
@@ -338,7 +352,7 @@ What `brain` generates inside a target project:
 ```
 <project>/
 ├── connectors/
-│   ├── registry.yaml         # which connectors exist + their intervals
+│   ├── registry.yaml         # which connectors exist + their type and interval
 │   ├── <name>/sync.py        # one script per data source
 │   ├── state/<name>.json     # last-run timestamps, drives interval checks
 │   └── logs/                 # LaunchAgent stdout/stderr
