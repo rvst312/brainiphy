@@ -93,9 +93,12 @@ def short_path(value) -> str:
     from pathlib import Path
 
     try:
-        return "~/" + str(Path(str(value)).relative_to(Path.home()))
+        relative = Path(str(value)).relative_to(Path.home())
     except ValueError:
         return str(value)
+    # relative_to() gives "." for the home directory itself, and "~/." reads
+    # like a typo in the folder picker, which starts there.
+    return "~" if str(relative) == "." else "~/" + str(relative)
 
 
 def header(title: str, subtitle=None) -> None:
