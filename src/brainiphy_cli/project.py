@@ -206,7 +206,12 @@ def open_graph(project: Path) -> bool:
 
     html = project / "graphify-out" / "graph.html"
     if brains.visualizer_is_stale(project):
-        ui.info("the picture is older than the graph, redrawing it (no model needed)")
+        # Distinguish the two, because "older than the graph" is simply untrue
+        # the first time and leaves you wondering what you missed. A brain
+        # built only with `graphify extract` has no picture at all: extract
+        # writes graph.json and never graph.html.
+        ui.info("drawing the graph for the first time (no model needed)" if not html.exists()
+                else "the picture is older than the graph, redrawing it (no model needed)")
         try:
             graphify = find_exe("graphify")
         except FileNotFoundError:

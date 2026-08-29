@@ -285,6 +285,10 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
         succeeded, label = build_graph(project, full=full, backend=backend)
         if succeeded:
             ui.ok("graph rebuilt")
+            # graphify signs off by suggesting its own `cluster-only`, which is
+            # a dead end from here. The picture it would draw is what `brain
+            # view` draws, on demand and without a model.
+            ui.hint("see it as a picture:", f"brain view {ui.short_path(project)}")
             report.graph_rebuilt = True
         else:
             report.errors.append(f"{label} failed")

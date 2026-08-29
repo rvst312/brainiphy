@@ -108,6 +108,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The graph's picture is reachable from a brain. `v` opens it from the
+  checklist and from the brains list, but neither footer said so; the keys were
+  added without their labels. `brain sync` also signs off pointing at
+  `brain view` rather than leaving graphify's own `cluster-only` suggestion as
+  the last word, and the first draw no longer claims the picture is "older than
+  the graph" when there was never a picture — the normal state, since
+  `graphify extract` writes graph.json and never graph.html.
 - A mirrored folder now brings in the files graphify cannot read. graphify
   indexes Markdown, text, PDF, Office documents and images, and silently skips
   everything else — so a folder of CSV or JSON exports was copied into the
