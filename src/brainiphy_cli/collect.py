@@ -31,6 +31,7 @@ from typing import Callable
 
 from brainiphy_cli.frontmatter import write_record
 from brainiphy_cli.httpclient import NoScope
+from brainiphy_cli.keychain import SecretNotFoundError
 
 # A record is a plain dict: id/title/body are required, every other key becomes
 # a frontmatter field. Keep the extras flat and filterable — the point of
@@ -117,6 +118,13 @@ def run(
     for collector in selected:
         try:
             records = collector.fetch()
+        except SecretNotFoundError as exc:
+            # Not a per-object failure: no collector can run without the
+            # credential, so reporting it once per object buries the single
+            # line that says how to fix it under nine identical copies — and
+            # _short() truncates the instruction away in each of them.
+            print(f"[{source_system}] {exc}", file=sys.stderr)
+            return 1
         except NoScope as exc:
             results.append(Result(collector.name, f"no scope ({_short(exc)})"))
             continue

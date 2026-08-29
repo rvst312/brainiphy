@@ -77,6 +77,29 @@ class RunTests(TempProjectTestCase):
         # The healthy object still ran — one bad object must not sink the rest.
         self.assertEqual(len(list((self.out / "deals").glob("*.md"))), 1)
 
+    def test_a_missing_credential_is_reported_once_and_stops_the_run(self):
+        """A precondition, not a per-object problem.
+
+        Every collector would raise the same thing, and reporting it ten times
+        buries the one line that says how to fix it — the summary column also
+        truncates the instruction away.
+        """
+        from brainiphy_cli.keychain import SecretNotFoundError
+
+        def no_credential():
+            raise SecretNotFoundError(
+                "No Keychain item named 'graphify-acme-crm'. Register it once "
+                "with:\n  brain secret set graphify-acme-crm")
+
+        code, printed = self._run([
+            collect.Collector("contacts", "contacts", no_credential),
+            collect.Collector("deals", "deals", no_credential),
+        ])
+        self.assertEqual(code, 1)
+        self.assertEqual(printed.count("No Keychain item"), 1)
+        # The whole instruction survives, item name included.
+        self.assertIn("brain secret set graphify-acme-crm", printed)
+
     def test_only_runs_just_the_named_collectors(self):
         code, _ = self._run([
             collect.Collector("contacts", "contacts", lambda: [record("1")]),
