@@ -73,8 +73,16 @@ jobs:
           fi
           echo "all shebangs use env"
 
+      - name: Unit tests
+        # The decisions that fail silently: which backend indexes the
+        # documents, which graphify command rebuilds the graph, whether a
+        # connector is due, the slug/escaping that keep a re-sync idempotent.
+        # No graphify, no network, no TTY — so it runs on every matrix entry.
+        run: python -m unittest discover -s tests -v
+
       - name: Smoke test
-        # Everything that runs without graphify, an LLM key or a TTY.
+        # The shape the unit suite cannot reach: the real `brain` binary, the
+        # real templates, a generated connector actually running.
         run: ./scripts/smoke.sh
 
   installer:
