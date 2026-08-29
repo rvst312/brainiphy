@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Documents can be indexed with your **Claude Code subscription** instead of an
+  API key. With no key configured and the `claude` CLI installed, `brain sync`
+  picks graphify's `claude-cli` backend, which authenticates against your
+  Pro/Max plan; `brain sync --backend <name>` forces a specific one. A first
+  sync on a machine that has Claude Code installed no longer stops at "no LLM
+  API key found".
+- A unit suite (`python -m unittest discover -s tests`), run by CI beside the
+  smoke test. It covers what fails silently: backend selection, which graphify
+  command rebuilds the graph, interval enforcement, the slug and YAML escaping
+  that keep a re-sync idempotent, what the checklist reads off disk, and the
+  HTTP layer's retry and no-scope behavior.
 - One-line install: `curl -fsSL .../install.sh | bash`. It builds a dedicated
   virtualenv, symlinks `brain` and `graphify` into `~/.local/bin`, adds that to
   the shell profile in a marked block if it is missing, registers the Claude
@@ -76,17 +87,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the playbook to `steps.py`, the flow to `app.py`, the interactive operations
   a step performs to `actions.py` and the prompt helpers to `prompt.py`, so the
   guided path and the individual commands share one implementation.
-- Every graphify invocation passes `--no-gitignore`. graphify honors
+- The full `graphify extract` pass passes `--no-gitignore`. graphify honors
   `.gitignore`, which lists `raw/`, so without it a brain's entire corpus was
   skipped.
 
 ### Fixed
 
+- A scheduled sync could not find `graphify` or `claude`. launchd gives a job
+  only `/usr/bin:/bin:/usr/sbin:/sbin`, so `brain schedule` now resolves those
+  directories while it still has the user's environment and pins them into the
+  LaunchAgent. Without `claude` on that PATH, an unattended `--full` sync lost
+  its LLM backend.
+- An unreadable `connectors/state/<name>.json` no longer aborts the run. A
+  naive (timezone-less) timestamp raised `TypeError` out of `is_due()` and took
+  down the whole sync before any connector had run; anything unparseable there
+  now simply means the connector is due.
+- A `registry.yaml` entry with no `name` is reported and skipped instead of
+  raising `KeyError` through `brain sync` and `brain status`.
+- `brain new-connector` and `brain status` disagreed about whether a connector
+  was finished. Two regexes detected unfilled `REPLACE_ME` constants and only
+  one of them accepted a digit in the suffix, so a connector could be announced
+  as ready while step 4 refused to tick for it.
 - Installation no longer uses `pip install --user`, which modern Homebrew and
   system Pythons refuse outright (PEP 668, `externally-managed-environment`).
   The virtualenv also makes "`brain` and `graphify` under one interpreter"
   structural rather than something to check after the fact.
-- A rebuild that fails for lack of an LLM backend now explains the two ways out
+- A rebuild that fails for lack of an LLM backend now explains the ways out
   (export a key, or run `/graphify` inside Claude Code) instead of exiting
   non-zero with no explanation.
 - "Change project" run from inside a brain opened the picker instead of

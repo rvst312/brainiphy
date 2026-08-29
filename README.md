@@ -235,9 +235,9 @@ It starts at `~/Documents` and lays the folders out in a grid sized to your term
 When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defaults to `.` — the picker never blocks a script. Safe to re-run either way: it never overwrites an existing registry.
 
 > [!IMPORTANT]
-> `.gitignore` and `.graphifyignore` are **not** interchangeable, and they overlap in a way that bites. `.graphifyignore` is the one graphify always obeys — it's what keeps your connector *scripts* from being indexed as content. But graphify also honors `.gitignore`, where `brain init` puts `raw/` so mirrored content never gets committed. That's why every graphify call `brain sync` makes passes `--no-gitignore`: without it, graphify skips the entire corpus and reports an empty project. Don't skip `brain init` on an existing project just because `registry.yaml` is already there.
+> `.gitignore` and `.graphifyignore` are **not** interchangeable, and they overlap in a way that bites. `.graphifyignore` is the one graphify always obeys — it's what keeps your connector *scripts* from being indexed as content. But graphify also honors `.gitignore`, where `brain init` puts `raw/` so mirrored content never gets committed. That's why the full `graphify extract` pass `brain sync` makes always passes `--no-gitignore`: without it, graphify skips the entire corpus and reports an empty project. (The incremental `graphify update` pass does not take the flag.) Don't skip `brain init` on an existing project just because `registry.yaml` is already there.
 
-### `brain new-connector <project> <name> [--interval-minutes N] [--mirror FOLDER]`
+### `brain new-connector <project> <name> [--interval-minutes N] [--mirror FOLDER] [--preset NAME] [--api URL] [--var K=V]`
 
 Writes `connectors/<name>/sync.py` and registers it in `registry.yaml` with its type and the given interval
 (default: 60).
@@ -256,7 +256,7 @@ Existing scripts are never overwritten.
 
 Why mirror rather than symlink: graphify doesn't follow symlinks, so a linked folder is simply never indexed. `--delete` keeps it idempotent — files removed at the source disappear from the brain instead of lingering as stale nodes.
 
-### `brain sync [project] [--dry-run] [--full]`
+### `brain sync [project] [--dry-run] [--full] [--backend NAME]`
 
 Runs every connector whose interval has elapsed (tracked in `connectors/state/<name>.json`), then rebuilds the graph — but only if at least one connector actually ran (or `--full` was passed).
 

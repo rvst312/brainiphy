@@ -56,8 +56,9 @@ subject line is the only part anyone reads in a year:
 ```
 
 - **type** — `feat`, `fix`, `docs`, `refactor`, `perf`, `chore`, `ci`, `revert`
-- **scope** — the module or area: `cli`, `sync`, `wizard`, `steps`, `project`,
-  `prompt`, `picker`, `ui`, `keychain`, `skill`, `deps` (optional, but use it)
+- **scope** — the module or area: `cli`, `sync`, `app`, `actions`, `steps`,
+  `project`, `prompt`, `picker`, `ui`, `keychain`, `skill`, `deps`, `tests`
+  (optional, but use it)
 - **subject** — imperative, lower case, no trailing period, ≤72 characters
 - **breaking change** — `!` after the scope *and* a `BREAKING CHANGE:` footer
 
@@ -100,22 +101,34 @@ they drift silently if separated.
 
 ## Testing
 
-There is no unit test suite yet. What exists is an end-to-end smoke test of
-everything that runs without graphify, an API key or a TTY:
+Two layers, both run by CI on Linux and macOS across the supported Python
+versions. Run both before opening a PR.
 
 ```sh
-./scripts/smoke.sh
+python -m unittest discover -s tests        # unit suite, no graphify, no network
+./scripts/smoke.sh                          # end-to-end, the real CLI
 ```
 
-CI runs the same script on Linux and macOS across the supported Python
-versions. Run it before opening a PR; add an assertion to it whenever you fix
-something it would have caught.
+The unit suite is plain `unittest` — no dependency to install, and it runs on
+the same interpreter as the package. It covers the decisions that fail
+*silently*: which LLM backend is chosen, which graphify command rebuilds the
+graph, whether a connector is due, the slug and escaping that make a re-sync
+idempotent, what the checklist reads off disk, and the retry/NoScope behavior
+of the HTTP layer. Add to it whenever you fix something that was invisible from
+the outside — three of the bugs it now guards were found by writing it.
 
-`brain new` can't be exercised that way — it refuses without a TTY, and piping
+The smoke test covers the shape the unit suite cannot: the real `brain` binary,
+the real templates, a generated connector actually running. Add an assertion to
+it whenever you fix something it would have caught.
+
+`brain new` is exercised by neither — it refuses without a TTY, and piping
 answers through `script -q /dev/null` does not work either (the pty eats
-stdin). Drive `wizard.run()` from a Python snippet that replaces
-`picker.is_interactive` and the four `prompt.*` functions with scripted
-answers; that covers the whole flow including the real subprocess calls.
+stdin). Drive `app.run()` from a Python snippet that replaces `keys.supported`,
+`picker.is_interactive`, `keys.read_key` and the `prompt.*` functions with
+scripted answers; that covers the whole flow including the real subprocess
+calls. Count the keypresses carefully — `_pause()` after a framed action reads
+one, and so does `_prepare()` on a folder that was not scaffolded yet. An
+off-by-one there looks exactly like a bug in the code under test.
 
 For anything touching a target project, work against a scratch directory:
 
@@ -143,8 +156,8 @@ These are the ones that are easy to violate without noticing:
   writes, or `registry.yaml` — shell history, process listings and launchd logs
   all leak.
 - **`cli.py` stays argparse plumbing.** The work belongs in `project.py`,
-  `sync.py` or `wizard.py`, so the guided flow and the individual commands
-  cannot drift apart.
+  `sync.py`, `app.py` or `actions.py`, so the guided flow and the individual
+  commands cannot drift apart.
 - **`steps.inspect()` stays cheap and read-only.** It runs on every
   `brain status`; no subprocess calls in it.
 

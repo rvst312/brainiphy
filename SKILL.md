@@ -74,7 +74,7 @@ Every project-level file (`connectors/registry.yaml`, `connectors/<name>/sync.py
 
 **Gotchas found the hard way**:
 - `connectors/<name>/sync.py` files live inside the watched project root, so graphify's own AST extractor will index them as source code (functions, imports) unless excluded. `brain init` writes a `.graphifyignore` with `connectors/` for exactly this reason — don't skip `brain init` on an existing project even if `connectors/registry.yaml` is already there by hand.
-- graphify **does** honor `.gitignore` (there is a `--no-gitignore` flag precisely to turn that off), and `brain init` puts `raw/` there so mirrored content isn't committed. Any graphify invocation over a brain therefore needs `--no-gitignore`, or it finds nothing — `brain sync` already does this. Don't "fix" an empty-looking graph by removing `raw/` from `.gitignore`.
+- graphify **does** honor `.gitignore` (there is a `--no-gitignore` flag precisely to turn that off), and `brain init` puts `raw/` there so mirrored content isn't committed. The `extract` pass over a brain therefore needs `--no-gitignore`, or it finds nothing — `brain sync` already does this. (`graphify update` takes only `--force` and `--no-cluster`; do not pass the flag to it.) Don't "fix" an empty-looking graph by removing `raw/` from `.gitignore`.
 
 ## The playbook
 
@@ -160,8 +160,9 @@ wrong one silently does nothing:
   complete no-op on a corpus of documents — it prints "no code files found" and exits non-zero.
 
 `brain sync` picks for you: full pass on the first build (or with `--full`), incremental afterwards. It also
-always passes `--no-gitignore`, which is **required**: graphify honors `.gitignore`, and `brain init` puts
-`raw/` in it, so without the flag graphify skips the entire corpus and reports an empty project.
+always passes `--no-gitignore` on the extract pass, which is **required**: graphify honors `.gitignore`, and
+`brain init` puts `raw/` in it, so without the flag graphify skips the entire corpus and reports an empty
+project. `graphify update` accepts only `--force` and `--no-cluster` and must not be given it.
 
 **Which model indexes the documents.** No API key is required. `brain sync` picks the backend like this:
 - An explicit `brain sync <project> --full --backend <name>` always wins.

@@ -7,8 +7,9 @@
 # What it deliberately does NOT cover: `brain sync` without --dry-run (it ends
 # in a graphify call), `connect-claude` and `schedule` (they write to the
 # user's home directory), and `brain new` beyond checking that it refuses to
-# run headless — driving the wizard needs the scripted-prompt harness described
-# in CONTRIBUTING.md.
+# run headless — driving the app needs the scripted-keypress harness described
+# in CONTRIBUTING.md. The unit suite (python -m unittest discover -s tests)
+# covers the decisions underneath these commands.
 set -euo pipefail
 
 brain=${BRAIN:-brain}
