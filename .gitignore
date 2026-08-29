@@ -19,8 +19,11 @@ Thumbs.db
 .vscode/
 
 # brainiphy: generated output, do not version
-connectors/state/
-connectors/logs/
+# Every connector under connectors/ is scaffolded output — this repo ships the
+# sample registry.yaml and nothing else. A `brain new` run pointed at this
+# folder while testing would otherwise leave a connector here, with a local
+# path baked into it, staged for commit.
+connectors/*/
 mirrors/
 raw/
 graphify-out/
