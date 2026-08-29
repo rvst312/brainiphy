@@ -93,6 +93,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A scheduled sync now runs `brain sync --full`. Without it the LaunchAgent
+  rebuilt with `graphify update`, a local AST pass that never reads documents:
+  new files were mirrored into `raw/` and never entered the graph, while every
+  run reported success. A brain left to sync on its own quietly stopped being
+  current — the exact failure scheduling exists to prevent. `graphify extract`
+  is gated by its own manifest and semantic cache, so an unchanged corpus
+  re-extracts nothing and costs no tokens.
+- A connector that cannot find its credential says so once, with the command to
+  fix it, instead of repeating a truncated copy of the message for every object
+  it was going to collect.
 - `brain secret set` no longer passes the credential to `security` as a
   command-line argument. Process arguments are readable by anything running as
   the same user for the lifetime of the command, and also reach shell history

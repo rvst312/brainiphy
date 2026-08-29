@@ -10,11 +10,27 @@
     <key>Label</key>
     <string>com.graphify.sync.__PROJECT_SLUG__</string>
 
+    <!--
+      The full flag below is load-bearing, and cheaper than it looks. A plain
+      `brain sync` rebuilds with `graphify update`, a local AST pass: it
+      mirrors new documents into raw/ and never indexes them semantically, so
+      an unattended brain made of documents (the normal kind) quietly stops
+      being current while reporting success on every run. `graphify extract`
+      is the only pass that reads documents, and it is gated by its own
+      manifest and semantic cache: measured on a corpus with nothing changed
+      it re-extracts nothing and finishes in about a second, and when
+      something has changed it pays for that file alone.
+
+      Note for anyone editing this comment: XML forbids a double hyphen inside
+      a comment, so flags cannot be written out here. A plist that fails to
+      parse is rejected by launchd with nothing in the log the user reads.
+    -->
     <key>ProgramArguments</key>
     <array>
         <string>__BRAIN_EXE__</string>
         <string>sync</string>
         <string>__PROJECT_PATH__</string>
+        <string>--full</string>
     </array>
 
     <!--

@@ -235,6 +235,65 @@ class AgentPathTests(unittest.TestCase):
         self.assertIn("/home/u/.local/bin", entries)
 
 
+class LaunchAgentTemplateTests(unittest.TestCase):
+    """The plist is generated, never hand-edited, so the template is the thing
+    to pin."""
+
+    def setUp(self):
+        self.template = (project_mod.TEMPLATE_DIR / "launchd_template.plist").read_text()
+
+    def test_the_scheduled_sync_asks_for_a_full_rebuild(self):
+        """Without --full the scheduler silently stops working on a document
+        brain.
+
+        A plain `brain sync` rebuilds with `graphify update`, a local AST pass
+        that never reads documents: new files are mirrored into raw/ and never
+        enter the graph, while every run reports success. `graphify extract` is
+        gated by its own manifest and semantic cache, so on an unchanged corpus
+        it re-extracts nothing and costs no tokens.
+        """
+        self.assertIn("<string>--full</string>", self.template)
+
+    def test_the_generated_plist_is_well_formed(self):
+        """launchd rejects a malformed plist silently as far as the user is
+        concerned, so this parses it rather than grepping it.
+
+        The trap that made this test exist: XML forbids a double hyphen inside
+        a comment, so a comment explaining a command-line flag breaks the file.
+        """
+        import plistlib
+
+        filled = (self.template
+                  .replace("__PROJECT_SLUG__", "acme")
+                  .replace("__BRAIN_EXE__", "/usr/local/bin/brain")
+                  .replace("__PROJECT_PATH__", "/Users/x/acme")
+                  .replace("__PATH__", "/usr/local/bin:/usr/bin")
+                  .replace("__INTERVAL_SECONDS__", "3600")
+                  .replace("__LOG_DIR__", "/Users/x/logs"))
+        data = plistlib.loads(filled.encode("utf-8"))
+        self.assertEqual(data["ProgramArguments"][:2], ["/usr/local/bin/brain", "sync"])
+        self.assertIn("--full", data["ProgramArguments"])
+        self.assertEqual(data["StartInterval"], 3600)
+        self.assertIn("/usr/local/bin", data["EnvironmentVariables"]["PATH"])
+
+    def test_every_placeholder_in_the_template_is_substituted(self):
+        # A placeholder nobody replaces reaches launchd verbatim, and the job
+        # fails in a log the user never opens.
+        import re
+
+        placeholders = set(re.findall(r"__[A-Z_]+__", self.template))
+        substituted = {"__PROJECT_SLUG__", "__BRAIN_EXE__", "__PROJECT_PATH__",
+                       "__PATH__", "__INTERVAL_SECONDS__", "__LOG_DIR__"}
+        self.assertEqual(placeholders - substituted, set())
+
+    def test_the_project_path_placeholder_survives_the_path_substitution(self):
+        # __PATH__ is a near-substring of __PROJECT_PATH__. It is not one
+        # (there is a single underscore before PATH there), but the two are one
+        # character apart, so this pins it rather than leaving it to be
+        # rediscovered by a job whose working directory is nonsense.
+        self.assertNotIn("__PATH__", "__PROJECT_PATH__")
+
+
 class ScaffoldTests(TempProjectTestCase):
     def test_scaffolding_writes_what_graphify_needs(self):
         self.scaffold()

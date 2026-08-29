@@ -272,7 +272,7 @@ Prints `ran=[...] skipped=[...] errors=[...] graph_rebuilt=<bool>` and exits non
 | | indexes | needs an LLM | when brain uses it |
 | --- | --- | --- | --- |
 | `graphify extract` | documents **and** code | yes, for documents | first build, and every `--full` |
-| `graphify update` | code only (local AST) | no | every later run |
+| `graphify update` | code only (local AST) | no | every later manual run |
 
 A brain made of documents therefore needs a model to index it — **but not an API key**. `brain sync` chooses the backend in this order:
 
