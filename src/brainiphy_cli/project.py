@@ -197,7 +197,7 @@ def set_constant(text: str, name: str, expr: str) -> tuple[str, bool]:
 def unfilled_placeholders(text: str) -> list[str]:
     """Constants still left at their REPLACE_ME value, in file order. A
     connector with any of these cannot run yet, and steps.py reports it."""
-    return re.findall(r'^([A-Z_][A-Z0-9_]*) = "REPLACE_ME[A-Z_]*"$', text, re.MULTILINE)
+    return re.findall(r'^([A-Z_][A-Z0-9_]*) = "REPLACE_ME[A-Z0-9_]*"$', text, re.MULTILINE)
 
 
 def create_connector(

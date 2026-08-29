@@ -6,9 +6,9 @@ disk and say whether it is already done. `brain guide` renders it, `brain
 status` uses it for its next-step line, and `brain new` walks it. Adding or
 reordering a step means editing `inspect()` here and nothing else.
 
-`render()` lives here too rather than in cli.py — the wizard prints the same
-checklist on its way out, and cli.py importing wizard.py importing cli.py
-would be a cycle.
+`render()` lives here too rather than in cli.py — the app prints the same
+checklist on its way out, and cli.py importing app.py importing cli.py would
+be a cycle.
 
 Detection is deliberately read-only and cheap — it runs on every `brain
 status`, so it inspects file existence and small JSON/YAML files, never
@@ -42,8 +42,12 @@ SKIP = "skip"
 #   - the stub templates leave a NotImplementedError where the fetching goes;
 #   - a preset or API template is complete but still carries the constants the
 #     installer has to supply (LOCATION_ID and friends), left at REPLACE_ME.
+#
+# The second one is read with project.unfilled_placeholders() rather than a
+# pattern of our own. There were two, and they disagreed about a digit in the
+# suffix: `brain new-connector` said a connector was ready to run while `brain
+# status` refused to tick step 4 for it.
 UNIMPLEMENTED_MARKER = "raise NotImplementedError"
-PLACEHOLDER_RE = re.compile(r'^[A-Z_][A-Z0-9_]* = "REPLACE_ME[A-Z0-9_]*"$', re.MULTILINE)
 
 
 @dataclass
@@ -159,10 +163,9 @@ def _pending_connectors(project: Path) -> list[tuple[str, str]]:
         if UNIMPLEMENTED_MARKER in text:
             pending.append((name, "needs code"))
             continue
-        missing = PLACEHOLDER_RE.findall(text)
+        missing = project_mod.unfilled_placeholders(text)
         if missing:
-            names = ", ".join(line.split(" = ")[0] for line in missing)
-            pending.append((name, f"needs {names}"))
+            pending.append((name, "needs " + ", ".join(missing)))
     return pending
 
 
@@ -261,7 +264,8 @@ def inspect(project: Path) -> BrainState:
             5,
             "build",
             "Run the first sync",
-            "pull every source in and index it — documents need an LLM key, or /graphify inside Claude Code",
+            "pull every source in and index it — documents need a model: an API key, "
+            "or your Claude Code subscription",
             state=DONE if graph else TODO,
             detail=f"{graph[0]} nodes, {graph[1]} edges" if graph else "graph not built yet",
             command=None if graph else f"brain sync {short} --full",
@@ -302,9 +306,9 @@ def inspect(project: Path) -> BrainState:
 # ------------------------------------------------------------- rendering ----
 
 def render(state: BrainState, *, verbose: bool = False) -> None:
-    """The checklist `brain guide` prints (and `brain new` prints on the way
-    out). Lives here, next to the step definitions, so both callers stay in
-    sync — and so cli.py and wizard.py don't have to import each other.
+    """The checklist `brain guide` prints (and the app prints on the way out).
+    Lives here, next to the step definitions, so both callers stay in sync —
+    and so cli.py and app.py don't have to import each other.
     """
     total = len(state.steps)
     next_step = state.next_step
@@ -356,7 +360,7 @@ def render(state: BrainState, *, verbose: bool = False) -> None:
 def render_status(project: Path) -> None:
     """The body of `brain status`: connectors, graph size, where the setup is.
 
-    Lives here rather than in cli.py so the menu shows exactly the same screen
+    Lives here rather than in cli.py so the app shows exactly the same screen
     as the command — cli.py is meant to be argparse plumbing, and a second copy
     of this is a second thing to keep in step.
     """
@@ -369,8 +373,13 @@ def render_status(project: Path) -> None:
     else:
         table = ui.table("connector", "type", "interval", "state", "script")
         for entry in entries:
-            name = entry["name"]
-            interval = float(entry.get("interval_minutes", 60))
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if not name:
+                continue
+            try:
+                interval = float(entry.get("interval_minutes", 60))
+            except (TypeError, ValueError):
+                interval = 60
             due = sync_mod.is_due(project, name, interval)
             script_ok = (project / "connectors" / name / "sync.py").exists()
             table.add_row(
