@@ -90,15 +90,18 @@ def ensure_graphify() -> None:
     except FileNotFoundError:
         ui.warn("graphify is not installed")
 
-    if not _confirm("Install it now with pip3 install --user graphifyy?"):
-        ui.hint("install it later with:", "pip3 install --user graphifyy")
+    # Installed with the interpreter running `brain`, never a bare `pip3` —
+    # see project.graphify_install_argv() for why the two must not diverge.
+    argv = project_mod.graphify_install_argv()
+    command = project_mod.graphify_install_command()
+
+    if not _confirm("Install it now, into the same environment as brain?"):
+        ui.hint("install it later with:", command)
         ui.warn("without it, the graph cannot be built — the rest of this still works")
         return
 
-    with ui.working("pip3 install --user graphifyy"):
-        result = subprocess.run(
-            ["pip3", "install", "--user", "graphifyy"], capture_output=True, text=True
-        )
+    with ui.working("installing graphify"):
+        result = subprocess.run(argv, capture_output=True, text=True)
     if result.returncode != 0:
         ui.raw(result.stderr, stderr=True)
         ui.error("install failed — do it by hand, then come back to this step")

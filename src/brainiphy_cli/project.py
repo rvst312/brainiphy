@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import site
 import subprocess
+import sys
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -116,6 +118,34 @@ def find_exe(name: str) -> str:
     if candidate.exists():
         return str(candidate)
     raise FileNotFoundError(f"{name} not found on PATH or in {Path(site.getuserbase()) / 'bin'}")
+
+
+def graphify_install_argv() -> list[str]:
+    """How to install graphify *next to `brain`*, as an argv.
+
+    Never a bare `pip3`. `brain sync` locates graphify with a PATH lookup and
+    then shells out to it, so the two have to live under one interpreter — and
+    `pip3` is whichever one happens to be first on PATH, which is exactly how
+    they end up apart. The failure is not the install: it is a later `brain
+    sync` reporting graphify as missing on a machine where it is plainly
+    installed.
+
+    `sys.executable` is the interpreter running `brain`, by construction. Under
+    the installer's virtualenv that is the whole answer; `--user` is added only
+    outside a venv, where it is both required (PEP 668 refuses a bare install
+    into a Homebrew or system Python) and safe, since there is no venv for it
+    to escape.
+    """
+    argv = [sys.executable, "-m", "pip", "install", "graphifyy"]
+    in_venv = sys.prefix != sys.base_prefix
+    if not in_venv:
+        argv.insert(4, "--user")
+    return argv
+
+
+def graphify_install_command() -> str:
+    """`graphify_install_argv()` as a line a user can paste."""
+    return shlex.join(graphify_install_argv())
 
 
 def append_ignore_entries(path: Path, entries: list[str], header_comment: str) -> int:

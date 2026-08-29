@@ -187,7 +187,11 @@ def inspect(project: Path) -> BrainState:
             "the engine that turns the collected files into a graph",
             state=DONE if graphify else TODO,
             detail=graphify or "not found on PATH",
-            command=None if graphify else "pip3 install --user graphifyy",
+            # Not `pip3 install --user graphifyy`: that resolves to whichever
+            # pip3 is first on PATH, which is how graphify ends up under a
+            # different interpreter than `brain` and `brain sync` then cannot
+            # find it. See project.graphify_install_argv().
+            command=None if graphify else project_mod.graphify_install_command(),
         )
     )
 

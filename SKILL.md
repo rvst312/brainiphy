@@ -125,11 +125,10 @@ Usually already done: the installer puts graphify in the same virtualenv as `bra
 have to run under one interpreter, because `brain sync` finds graphify by PATH lookup and shells out to it.
 Check with `graphify --version` and move on.
 
-If it really is missing, re-run the installer (`bash ~/.claude/skills/brainiphy/install.sh`) rather than
-installing graphify on its own. `brain guide` and the app both offer `pip3 install --user graphifyy` here, which
-works on a machine whose `pip3` is the right one and fails with `externally-managed-environment` on a Homebrew
-or system Python; worse, when it does succeed it can land graphify under a different interpreter than `brain`.
-If you or the user take that route anyway, verify afterwards:
+If it really is missing, `brain guide` and the app both offer the right command for this machine — it names the
+interpreter `brain` runs under (`<that python> -m pip install [--user] graphifyy`) rather than a bare `pip3`,
+which resolves to whatever is first on PATH and is how the two end up apart. Run what they print, or re-run the
+installer. Either way, the check afterwards is the same:
 ```
 head -1 "$(which brain)"; head -1 "$(which graphify)"    # must name the same interpreter
 ```

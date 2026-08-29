@@ -80,7 +80,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         ui.ok("graphify found:", project_mod.find_exe("graphify"))
     except FileNotFoundError:
         ui.warn("graphify is not installed")
-        ui.hint("install it with:", "pip3 install --user graphifyy")
+        ui.hint("install it with:", project_mod.graphify_install_command())
 
     # Scaffolding is step 2 of a seven-step process, so at a terminal, carry
     # straight on into it rather than printing the next command and stopping.
