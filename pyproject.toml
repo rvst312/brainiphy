@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brainiphy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Bootstrap and maintain graphify knowledge-graph brains for a business, from zero data sources to a synced graph connected to Claude."
 requires-python = ">=3.9"
 dependencies = ["pyyaml", "rich>=13"]

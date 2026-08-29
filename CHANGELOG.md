@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-08-29
+
 ### Added
 
 - **Your brains.** `brain` now opens on the list of every brain on this
@@ -196,3 +200,7 @@ Initial release: the `brain` CLI (`init`, `new-connector`, `sync`,
 `connect-claude`, `schedule`, `secret`, `status`), the connector contract and
 templates, Keychain-backed credentials, LaunchAgent scheduling, the interactive
 folder picker, the Rich-styled output layer, and the `SKILL.md` playbook.
+
+[Unreleased]: https://github.com/rvst312/brainiphy/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rvst312/brainiphy/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/rvst312/brainiphy/releases/tag/v0.1.0
