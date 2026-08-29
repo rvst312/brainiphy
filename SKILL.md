@@ -163,10 +163,22 @@ wrong one silently does nothing:
 always passes `--no-gitignore`, which is **required**: graphify honors `.gitignore`, and `brain init` puts
 `raw/` in it, so without the flag graphify skips the entire corpus and reports an empty project.
 
-If there is no API key in the environment, `brain sync` says so and prints both ways out: export one
-(`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …), or let Claude Code do the extraction itself by
-running `/graphify` in the project — which costs nothing extra and is the better default for a user who is
-already in a Claude session.
+**Which model indexes the documents.** No API key is required. `brain sync` picks the backend like this:
+- An explicit `brain sync <project> --full --backend <name>` always wins.
+- Otherwise, whichever API key is in the environment (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …)
+  — graphify's own detection.
+- Otherwise, if the `claude` CLI is installed, `--backend claude-cli`: graphify calls Claude Code with
+  `claude -p`, so the indexing authenticates with the user's **Pro/Max subscription** and is billed to the plan,
+  not to pay-as-you-go API credit. This is the default a user with no key gets, and it is usually the right one.
+
+Two things to tell a user before a large first sync on the subscription: graphify runs this backend one chunk at
+a time (no parallelism), so a big corpus is slow, and it defaults to Opus — `export GRAPHIFY_CLAUDE_CLI_MODEL=haiku`
+(or `sonnet`) makes it much faster and lighter on the plan.
+
+There is no equivalent for a **ChatGPT subscription**: graphify has no Codex/ChatGPT-CLI backend, and its `openai`
+backend needs a real API key (or an OpenAI-compatible `OPENAI_BASE_URL`, which the ChatGPT plan does not expose).
+For a no-cost run, the options are the Claude subscription above, a local model via `--backend ollama`, or running
+`/graphify` inside a Claude session so the agent does the extraction itself.
 
 ### 6. Connect to Claude
 ```

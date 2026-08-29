@@ -274,7 +274,18 @@ Prints `ran=[...] skipped=[...] errors=[...] graph_rebuilt=<bool>` and exits non
 | `graphify extract` | documents **and** code | yes, for documents | first build, and every `--full` |
 | `graphify update` | code only (local AST) | no | every later run |
 
-A brain made of documents therefore needs a model to index it. If no API key is set, `brain sync` says so and offers both ways out: export one (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …), or let Claude Code do the extraction itself by running `/graphify` in the project.
+A brain made of documents therefore needs a model to index it — **but not an API key**. `brain sync` chooses the backend in this order:
+
+1. `--backend <name>`, if you pass one.
+2. Whichever API key is in the environment (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …).
+3. Your **Claude Code subscription**, when neither is set and the `claude` CLI is installed. graphify shells out to `claude -p`, so the indexing is billed to your Pro/Max plan instead of pay-as-you-go API credit.
+
+```bash
+brain sync ~/clients/acme --full --backend claude-cli   # force the subscription
+export GRAPHIFY_CLAUDE_CLI_MODEL=haiku                  # faster + lighter than the Opus default
+```
+
+The subscription backend runs one chunk at a time, so a large first sync is slower than an API key would be. A **ChatGPT subscription cannot be used this way** — graphify has no Codex/ChatGPT-CLI backend, and its `openai` backend wants a real key. The other no-cost routes are a local model (`--backend ollama`) or running `/graphify` inside a Claude session so the agent extracts the graph itself.
 
 ### `brain connect-claude [project] [--desktop] [--trust-desktop]`
 
