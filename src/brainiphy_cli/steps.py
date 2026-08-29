@@ -368,10 +368,16 @@ def render_status(project: Path) -> None:
 
     entries = _registry_entries(project)
     if not entries:
-        ui.info("no connectors registered yet")
+        ui.info("no sources feed this brain yet")
         ui.hint("add one interactively with:", f"brain new {ui.short_path(project)}")
     else:
-        table = ui.table("connector", "type", "interval", "state", "script")
+        # Why "ready" rather than "script ok": whether a connector can actually
+        # run is the question, and a script being present does not answer it —
+        # a stub and a preset missing its account id are both present and both
+        # unable to run. The reason goes in the column, because "not ready" on
+        # its own leaves you opening files to find out which kind of not-ready.
+        blocked = dict(_pending_connectors(project))
+        table = ui.table("source", "type", "ready", "runs", "records")
         for entry in entries:
             name = entry.get("name") if isinstance(entry, dict) else None
             if not name:
@@ -380,22 +386,38 @@ def render_status(project: Path) -> None:
                 interval = float(entry.get("interval_minutes", 60))
             except (TypeError, ValueError):
                 interval = 60
+            reason = blocked.get(name)
             due = sync_mod.is_due(project, name, interval)
-            script_ok = (project / "connectors" / name / "sync.py").exists()
+            out_dir = project / "raw" / name
+            records = sum(1 for _ in out_dir.rglob("*")) if out_dir.is_dir() else 0
+
+            if reason:
+                ready = ui.cell(reason, "brain.warn")
+            else:
+                ready = ui.cell("yes", "brain.ok")
+            schedule = f"every {interval:g} min · " + ("due now" if due else "up to date")
             table.add_row(
                 ui.cell(name, "brain.path"),
                 ui.cell(project_mod.type_label(entry, project)),
-                ui.cell(f"{interval:g} min"),
-                ui.cell("due now", "brain.warn") if due else ui.cell("up to date", "brain.ok"),
-                ui.cell("ok", "brain.ok") if script_ok else ui.cell("MISSING", "brain.err"),
+                ready,
+                ui.cell(schedule, "brain.warn" if due else "brain.info"),
+                ui.cell(str(records) if records else "—",
+                        "" if records else "brain.info"),
             )
         ui.print_table(table)
+
+        pending = len(blocked)
+        if pending:
+            ui.blank()
+            ui.warn(f"{pending} source{'' if pending == 1 else 's'} cannot run yet")
+            ui.hint("finish them from the checklist:", f"brain {ui.short_path(project)}")
 
     ui.blank()
     graph = _graph_size(project)
     graph_json = project / "graphify-out" / "graph.json"
     if graph:
         ui.ok(f"graph: {graph[0]} nodes, {graph[1]} edges", graph_json)
+        ui.hint("see it as a picture:", f"brain view {ui.short_path(project)}")
     elif graph_json.exists():
         ui.warn("graph exists but could not be parsed:", graph_json)
     else:

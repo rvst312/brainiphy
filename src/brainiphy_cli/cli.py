@@ -21,6 +21,7 @@ from pathlib import Path
 
 from brainiphy_cli import (
     app,
+    brains,
     keychain,
     keys,
     picker,
@@ -292,6 +293,103 @@ def cmd_secret_get(args: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------- brains --
+
+def cmd_list(args: argparse.Namespace) -> int:
+    """Every brain on this machine, and which one needs attention."""
+    summaries = brains.summaries()
+    if not summaries:
+        ui.info("no brains yet")
+        ui.hint("create your first one with:", "brain")
+        ui.hint("or register one you already have:", "brain add <folder>")
+        return 0
+
+    table = ui.table("brain", "setup", "sources", "graph", "last sync", "where")
+    for summary in summaries:
+        if summary.missing:
+            table.add_row(
+                ui.cell(summary.name, "brain.path"),
+                ui.cell("missing", "brain.err"),
+                ui.cell("—"), ui.cell("—"), ui.cell("—"),
+                ui.cell(ui.short_path(summary.path), "brain.info"),
+            )
+            continue
+        sources = f"{summary.sources}"
+        if summary.pending_sources:
+            sources += f" ({summary.pending_sources} unfinished)"
+        table.add_row(
+            ui.cell(summary.name, "brain.path"),
+            ui.cell(f"{summary.steps_done}/{summary.steps_total}",
+                    "brain.ok" if summary.complete else "brain.warn"),
+            ui.cell(sources, "brain.warn" if summary.pending_sources else ""),
+            ui.cell(f"{summary.nodes} nodes" if summary.nodes is not None else "not built",
+                    "" if summary.nodes is not None else "brain.warn"),
+            ui.cell(brains.ago(summary.last_sync)),
+            ui.cell(ui.short_path(summary.path), "brain.info"),
+        )
+    ui.print_table(table)
+
+    if any(s.missing for s in summaries):
+        ui.blank()
+        ui.warn("a brain marked 'missing' has been moved or deleted")
+        ui.hint("drop it from this list with:", "brain forget <folder>")
+    ui.blank()
+    ui.hint("open one, or create another:", "brain")
+    return 0
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    """Register a brain that already exists — one made before this list did,
+    or one that arrived with a cloned repo."""
+    if args.project is None:
+        if not picker.is_interactive():
+            ui.error("which folder? pass it as an argument:", "brain add <folder>")
+            return 2
+        chosen = picker.pick_project_dir(
+            title="add an existing brain", purpose="brain", allow_new=False)
+        if chosen is None:
+            ui.info("nothing added")
+            return 0
+        project = chosen
+    else:
+        project = Path(args.project).expanduser().resolve()
+
+    if not project.is_dir():
+        ui.error("no such folder:", project)
+        return 1
+    if not brains.is_brain(project):
+        # Being told "that is not a brain" and nothing else is a dead end.
+        ui.error("that folder is not a brain yet:", project)
+        ui.hint("make it one with:", f"brain init {ui.short_path(project)}")
+        return 1
+
+    if brains.remember(project):
+        ui.ok("added to your brains:", project)
+    else:
+        ui.info("already in your brains:", project)
+    ui.hint("see them all with:", "brain list")
+    return 0
+
+
+def cmd_forget(args: argparse.Namespace) -> int:
+    """Remove a brain from the list. Never touches the brain's own files."""
+    project = Path(args.project).expanduser().resolve()
+    if brains.forget(project):
+        ui.ok("removed from your brains:", project.name)
+        ui.info("its files are untouched at", project)
+        ui.hint("add it back any time with:", f"brain add {ui.short_path(project)}")
+        return 0
+    ui.warn("not in your brains:", project)
+    ui.hint("see what is:", "brain list")
+    return 1
+
+
+def cmd_view(args: argparse.Namespace) -> int:
+    """Open graphify's interactive picture of the graph."""
+    project = Path(args.project).expanduser().resolve()
+    return 0 if project_mod.open_graph(project) else 1
+
+
 # ---------------------------------------------------------------- status --
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -393,6 +491,45 @@ def main() -> int:
     sp = secret_sub.add_parser("get")
     sp.add_argument("item")
     sp.set_defaults(func=cmd_secret_get)
+
+    p = sub.add_parser(
+        "list",
+        help="List every brain on this machine and how far along each one is",
+        description="Shows each registered brain: how much of the setup is done, "
+                    "how many sources feed it, how big its graph is and when it "
+                    "last synced. Brains are added here automatically when you "
+                    "create them.",
+    )
+    p.set_defaults(func=cmd_list, framed=True)
+
+    p = sub.add_parser(
+        "add",
+        help="Register an existing brain so it shows up in `brain list`",
+        description="For a brain made before this list existed, or one that "
+                    "arrived with a cloned repo. Creating a brain registers it "
+                    "on its own.",
+    )
+    p.add_argument("project", nargs="?", default=None,
+                   help="The brain's folder. Omit it at a terminal to browse for one.")
+    p.set_defaults(func=cmd_add)
+
+    p = sub.add_parser(
+        "forget",
+        help="Remove a brain from the list (its files are left alone)",
+        description="Removes the entry only. Nothing inside the brain is "
+                    "deleted, and `brain add` puts it back.",
+    )
+    p.add_argument("project", help="The brain's folder")
+    p.set_defaults(func=cmd_forget, framed=True)
+
+    p = sub.add_parser(
+        "view",
+        help="Open the interactive graph in your browser",
+        description="Opens graphify's graph.html. It is redrawn first if it is "
+                    "older than the graph, which costs no tokens.",
+    )
+    p.add_argument("project", nargs="?", default=".", help="The brain's folder")
+    p.set_defaults(func=cmd_view, framed=True)
 
     p = sub.add_parser("status", help="Show connector and graph status")
     p.add_argument("project", nargs="?", default=".")

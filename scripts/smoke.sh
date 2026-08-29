@@ -16,6 +16,10 @@ brain=${BRAIN:-brain}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# Creating a brain registers it in the user's list. Point that list into the
+# scratch directory so a smoke run never appends temp folders to it.
+export BRAINIPHY_HOME="$work/config"
+
 source_dir="$work/source"
 project="$work/project"
 mkdir -p "$source_dir"
@@ -43,6 +47,28 @@ test -f "$project/raw/docs/note.md" || { echo "mirror did not copy the source do
 step "brain new-connector (generic template)"
 "$brain" new-connector "$project" crm
 grep -q 'fetch_records' "$project/connectors/crm/sync.py" || { echo "template did not land" >&2; exit 1; }
+
+step "brain list / forget / add"
+# Captured rather than piped into grep: under `set -o pipefail`, grep -q closes
+# the pipe on its first match, brain exits on the broken pipe, and the whole
+# pipeline reports a failure that never happened.
+listed() { "$brain" list; }
+case "$(listed)" in *"$(basename "$project")"*) ;; *)
+  echo "a scaffolded brain did not appear in the list" >&2; exit 1;; esac
+
+"$brain" forget "$project" > /dev/null
+case "$(listed)" in *"$(basename "$project")"*)
+  echo "forget did not remove it from the list" >&2; exit 1;; esac
+# The promise `brain forget` makes: the entry goes, the brain does not.
+test -f "$project/connectors/registry.yaml" || { echo "forget deleted the brain's files" >&2; exit 1; }
+test -x "$project/connectors/docs/sync.py" || { echo "forget deleted a connector" >&2; exit 1; }
+
+"$brain" add "$project" > /dev/null
+case "$(listed)" in *"$(basename "$project")"*) ;; *)
+  echo "add did not put it back" >&2; exit 1;; esac
+
+step "brain view without a graph explains itself"
+"$brain" view "$project" > /dev/null 2>&1 && { echo "view should fail when there is no graph" >&2; exit 1; }
 
 step "brain sync --dry-run"
 "$brain" sync "$project" --dry-run

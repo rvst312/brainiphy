@@ -39,6 +39,7 @@ from rich.text import Text
 
 from brainiphy_cli import (
     actions,
+    brains,
     keychain,
     keys,
     picker,
@@ -418,6 +419,12 @@ def _tool_credentials(project: Path) -> None:
     _pause()
 
 
+def _tool_view(project: Path) -> None:
+    with ui.framed("the graph", ui.short_path(project)):
+        project_mod.open_graph(project)
+    _pause()
+
+
 def _tool_presets(project: Path) -> None:
     with ui.framed("available presets", ui.short_path(project)):
         table = ui.table("preset", "system", "pulls")
@@ -437,25 +444,21 @@ TOOLS = [
     ("Status", "connectors, graph size, due times", _tool_status),
     ("Credentials", "store a connector's token in the Keychain", _tool_credentials),
     ("Browse presets", "connectors that are already written", _tool_presets),
-    ("Change project", "point the app at a different brain", None),
+    ("View the graph", "open the interactive picture in your browser", _tool_view),
 ]
 
 
-def _open_tools(project: Path) -> Path | None:
-    """Returns a new project when the user switched, else None."""
+def _open_tools(project: Path) -> None:
+    """Operations that are not steps: sync, credentials, presets, the graph.
+
+    Switching brains used to live here as "Change project". It is `b` on the
+    checklist now, because the app opens on the list of brains, and going back
+    to that list is navigation rather than a tool.
+    """
     picked = _choose("tools", [(label, hint) for label, hint, _ in TOOLS], ui.short_path(project))
     if picked is None:
-        return None
-    _, _, action = TOOLS[picked]
-    if action is None:
-        # force_pick: "Change project" run from inside a brain must open the
-        # picker, not hand back the folder you are standing in.
-        switched = _resolve_project(None, force_pick=True)
-        if switched is not None:
-            _prepare(switched)
-        return switched
-    action(project)
-    return None
+        return
+    TOOLS[picked][2](project)
 
 
 # ------------------------------------------------------------------ home ----
@@ -517,21 +520,6 @@ def _home_body(state: steps.BrainState, cursor: int) -> Text:
     return body
 
 
-def _resolve_project(project_arg: str | None, *, force_pick: bool = False) -> Path | None:
-    if project_arg is not None:
-        target = Path(project_arg).expanduser().resolve()
-        target.mkdir(parents=True, exist_ok=True)
-        return target
-
-    # A brain in the current directory is almost always the one meant — unless
-    # the user explicitly asked to change project, in which case answering with
-    # the folder they are already in is the least useful thing possible.
-    cwd = Path.cwd()
-    if not force_pick and (cwd / "connectors" / "registry.yaml").exists():
-        return cwd
-    return picker.pick_project_dir()
-
-
 def _prepare(project: Path) -> None:
     """Scaffold a freshly chosen folder before the checklist appears.
 
@@ -553,22 +541,11 @@ def _prepare(project: Path) -> None:
     _pause("press any key to start adding sources")
 
 
-def run(project_arg: str | None = None) -> int:
-    if not (picker.is_interactive() and keys.supported()):
-        ui.error("`brain` needs a terminal — it walks you through the setup")
-        ui.hint("in a script or an agent turn, use the individual commands:",
-                "brain init … && brain new-connector … && brain sync …")
-        return 1
+BACK, QUIT = "back", "quit"
 
-    project = _resolve_project(project_arg)
-    if project is None:
-        # Backing out of the first screen is a decision, not a failure.
-        ui.info("no folder chosen — nothing was created")
-        ui.hint("run it again any time with:", "brain")
-        return 0
 
-    _prepare(project)
-
+def _brain_screen(project: Path) -> str:
+    """The seven-step checklist for one brain. Returns BACK or QUIT."""
     state = steps.inspect(project)
     # Open on whatever this brain needs next, not on step 1.
     cursor = state.steps.index(state.next_step) if state.next_step else 0
@@ -577,6 +554,7 @@ def run(project_arg: str | None = None) -> int:
         ui.clear()
         ui.out.print(ui.app_panel(
             _home_body(state, cursor),
+            title=project.name,
             subtitle=f"{state.done_count}/{len(state.steps)}  ·  {ui.short_path(project)}",
         ))
 
@@ -584,7 +562,7 @@ def run(project_arg: str | None = None) -> int:
             key = keys.read_key()
         except (KeyboardInterrupt, EOFError):
             ui.blank()
-            return 0
+            return QUIT
 
         if key == keys.UP:
             cursor = (cursor - 1) % len(state.steps)
@@ -592,15 +570,18 @@ def run(project_arg: str | None = None) -> int:
         if key == keys.DOWN:
             cursor = (cursor + 1) % len(state.steps)
             continue
-        if key in (keys.ESC, "q", "Q"):
+        if key in (keys.ESC, keys.LEFT, "b", "B"):
+            return BACK
+        if key in ("q", "Q"):
             ui.blank()
-            return 0
+            return QUIT
         if key in ("t", "T"):
-            switched = _open_tools(project)
-            if switched is not None:
-                project = switched
+            _open_tools(project)
             state = steps.inspect(project)
             cursor = min(cursor, len(state.steps) - 1)
+            continue
+        if key in ("v", "V"):
+            _tool_view(project)
             continue
         if key.isdigit() and 1 <= int(key) <= len(state.steps):
             cursor = int(key) - 1
@@ -624,7 +605,216 @@ def run(project_arg: str | None = None) -> int:
         # moves you on without having to work out what came after it.
         previous_done = state.done_count
         state = steps.inspect(project)
-        if state.next_step is not None and state.done_count > previous_done:
+        if state.done_count > previous_done and state.next_step is not None:
             cursor = state.steps.index(state.next_step)
+        else:
+            cursor = min(cursor, len(state.steps) - 1)
 
-    return 0
+
+# ----------------------------------------------------------- your brains ----
+
+def _new_brain() -> Path | None:
+    """Choose a folder for a new brain and prepare it."""
+    chosen = picker.pick_project_dir()
+    if chosen is None:
+        return None
+    _prepare(chosen)
+    return chosen
+
+
+def _add_existing_brain() -> Path | None:
+    """Register a brain that already exists somewhere on this machine."""
+    chosen = picker.pick_project_dir(
+        title="add an existing brain", purpose="brain", allow_new=False)
+    if chosen is None:
+        return None
+    with ui.framed("adding a brain", ui.short_path(chosen)):
+        if not brains.is_brain(chosen):
+            ui.warn("that folder is not a brain yet")
+            ui.info("preparing it now — this only writes registry.yaml and two ignore files")
+            project_mod.scaffold(chosen)
+        elif brains.remember(chosen):
+            ui.ok("added to your brains:", chosen.name)
+        else:
+            ui.info("already in your brains:", chosen.name)
+    _pause()
+    return chosen
+
+
+def _forget_brain(summary) -> None:
+    """Drop a brain from the list, after saying plainly what that does.
+
+    The fear this screen exists to answer is "am I about to delete a client's
+    data", so it answers it before asking anything.
+    """
+    ui.clear()
+    body = Text()
+    _append_wrapped(body, f"Remove '{summary.name}' from this list?", "brain.head", indent=2)
+    body.append("\n")
+    _append_wrapped(body, "The list is the only thing that changes. Every file stays "
+                          "where it is — the connectors, the graph, the mirrored "
+                          "documents — and you can add it back at any time.",
+                    "brain.info", indent=2)
+    body.append("\n")
+    _append_wrapped(body, str(summary.path), "brain.path", indent=2)
+    body.append("\n  y", style="brain.hint")
+    body.append(" remove it from the list   ", style="brain.info")
+    body.append("n", style="brain.hint")
+    body.append(" keep it", style="brain.info")
+    ui.out.print(ui.app_panel(body, title="remove from the list"))
+    try:
+        key = keys.read_key()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if key in ("y", "Y"):
+        with ui.framed("removed", summary.name):
+            brains.forget(summary.path)
+            ui.ok("removed from your brains:", summary.name)
+            ui.info("its files are untouched at", summary.path)
+        _pause()
+
+
+def _brains_body(summaries, cursor: int) -> Text:
+    body = Text()
+    _append_wrapped(body, "Each brain is a folder with its own sources and its own "
+                          "graph. Open one to carry on setting it up.",
+                    "brain.info", indent=2)
+    body.append("\n")
+
+    for index, summary in enumerate(summaries):
+        selected = index == cursor
+        body.append(" ❯ " if selected else "   ", style="brain.hint")
+        body.append(f" {summary.name} ", style="reverse bold" if selected else "brain.head")
+
+        if summary.missing:
+            body.append("  moved or deleted", style="brain.err")
+        elif summary.complete:
+            body.append("  ready", style="brain.ok")
+        else:
+            body.append(f"  {summary.steps_done}/{summary.steps_total} set up",
+                        style="brain.warn")
+        body.append("\n")
+
+        if selected:
+            if summary.missing:
+                _append_wrapped(body, "This folder is no longer there. Removing it from "
+                                      "the list is all that is left to do.",
+                                "brain.info", indent=6)
+            else:
+                sources = (f"{summary.sources} source{'' if summary.sources == 1 else 's'}"
+                           if summary.sources else "no sources yet")
+                if summary.pending_sources:
+                    sources += f", {summary.pending_sources} still unfinished"
+                graph = (f"{summary.nodes} nodes" if summary.nodes is not None
+                         else "graph not built yet")
+                _append_wrapped(
+                    body,
+                    f"{sources}  ·  {graph}  ·  synced {brains.ago(summary.last_sync)}",
+                    "brain.info", indent=6)
+                _append_wrapped(body, "in " + ui.short_path(summary.path.parent),
+                                "brain.info", indent=6)
+
+    body.append("\n  ↑↓", style="brain.hint")
+    body.append(" move   ", style="brain.info")
+    body.append("↵", style="brain.hint")
+    body.append(" open   ", style="brain.info")
+    body.append("n", style="brain.hint")
+    body.append(" new   ", style="brain.info")
+    body.append("a", style="brain.hint")
+    body.append(" add existing   ", style="brain.info")
+    body.append("v", style="brain.hint")
+    body.append(" graph   ", style="brain.info")
+    body.append("d", style="brain.hint")
+    body.append(" remove   ", style="brain.info")
+    body.append("q", style="brain.hint")
+    body.append(" quit", style="brain.info")
+    return body
+
+
+def _brains_screen() -> int:
+    """The app's front door: every brain on this machine."""
+    cursor = 0
+    while True:
+        summaries = brains.summaries()
+
+        if not summaries:
+            # An empty list is not a screen worth showing: there is exactly one
+            # thing anybody can do from it, so do that instead.
+            project = _new_brain()
+            if project is None:
+                ui.info("no folder chosen — nothing was created")
+                ui.hint("run it again any time with:", "brain")
+                return 0
+            if _brain_screen(project) == QUIT:
+                return 0
+            continue
+
+        cursor = min(cursor, len(summaries) - 1)
+        ui.clear()
+        ui.out.print(ui.app_panel(
+            _brains_body(summaries, cursor),
+            title="your brains",
+            subtitle=f"{len(summaries)} brain{'' if len(summaries) == 1 else 's'}",
+        ))
+
+        try:
+            key = keys.read_key()
+        except (KeyboardInterrupt, EOFError):
+            ui.blank()
+            return 0
+
+        if key == keys.UP:
+            cursor = (cursor - 1) % len(summaries)
+        elif key == keys.DOWN:
+            cursor = (cursor + 1) % len(summaries)
+        elif key in (keys.ESC, "q", "Q"):
+            ui.blank()
+            return 0
+        elif key in ("n", "N"):
+            project = _new_brain()
+            if project is not None and _brain_screen(project) == QUIT:
+                return 0
+        elif key in ("a", "A"):
+            project = _add_existing_brain()
+            if project is not None and _brain_screen(project) == QUIT:
+                return 0
+        elif key in ("d", "D"):
+            _forget_brain(summaries[cursor])
+        elif key in ("v", "V"):
+            if not summaries[cursor].missing:
+                _tool_view(summaries[cursor].path)
+        elif key in (keys.ENTER, keys.RIGHT):
+            summary = summaries[cursor]
+            # A missing brain has one useful action and it is not "open".
+            if summary.missing:
+                _forget_brain(summary)
+            elif _brain_screen(summary.path) == QUIT:
+                return 0
+        elif key.isdigit() and 1 <= int(key) <= len(summaries):
+            cursor = int(key) - 1
+
+
+def run(project_arg: str | None = None) -> int:
+    if not (picker.is_interactive() and keys.supported()):
+        ui.error("`brain` needs a terminal — it walks you through the setup")
+        ui.hint("in a script or an agent turn, use the individual commands:",
+                "brain init … && brain new-connector … && brain sync …")
+        return 1
+
+    # Named a folder, or standing in one: that is the brain they mean, and the
+    # list would only be a screen in the way of it.
+    if project_arg is not None:
+        project = Path(project_arg).expanduser().resolve()
+        project.mkdir(parents=True, exist_ok=True)
+        _prepare(project)
+        brains.remember(project)
+        _brain_screen(project)
+        return 0
+
+    cwd = Path.cwd()
+    if brains.is_brain(cwd):
+        brains.remember(cwd)
+        if _brain_screen(cwd) == QUIT:
+            return 0
+
+    return _brains_screen()

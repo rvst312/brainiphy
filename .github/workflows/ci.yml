@@ -47,7 +47,7 @@ jobs:
         # Every module, so a rename that misses a caller fails here rather than
         # at the first user who runs the command that touches it. Keep the list
         # complete when adding a module.
-        run: python -c "from brainiphy_cli import actions, app, cli, collect, frontmatter, httpclient, keychain, keys, picker, presets, project, prompt, steps, sync, ui"
+        run: python -c "from brainiphy_cli import actions, app, brains, cli, collect, frontmatter, httpclient, keychain, keys, picker, presets, project, prompt, steps, sync, ui"
 
       - name: Templates and presets compile
         # Connector templates and presets are copied as text and never

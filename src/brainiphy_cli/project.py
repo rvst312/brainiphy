@@ -18,12 +18,13 @@ import re
 import shutil
 import site
 import subprocess
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from brainiphy_cli import presets, sync as sync_mod, ui
+from brainiphy_cli import brains, presets, sync as sync_mod, ui
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -177,6 +178,60 @@ def scaffold(project: Path) -> None:
         ui.ok(f".graphifyignore: {added} new {'entry' if added == 1 else 'entries'}")
     else:
         ui.info(".graphifyignore already covers everything")
+
+    # The list of brains fills itself in as you work. Asking someone to
+    # register a brain they just created would be a second step for one
+    # intention, and the list is only useful if it is complete.
+    if brains.remember(project):
+        ui.ok("added to your brains, see them all with:", "brain list")
+
+
+# ------------------------------------------------------------ visualizer ----
+
+def open_graph(project: Path) -> bool:
+    """Open graphify's interactive graph, refreshing it first if it is stale.
+
+    `graphify extract` writes graph.json and does not regenerate graph.html —
+    only `update` and `cluster-only` do — so after a full rebuild the picture
+    is quietly the previous one, which is worse than no picture at all. The
+    refresh uses `cluster-only --no-label`: it redraws from the graph on disk
+    without asking a model to name the communities, so opening the visualizer
+    never costs tokens.
+    """
+    graph = project / "graphify-out" / "graph.json"
+    if not graph.exists():
+        ui.warn("no graph yet — there is nothing to draw")
+        ui.hint("build it with:", f"brain sync {ui.short_path(project)} --full")
+        return False
+
+    html = project / "graphify-out" / "graph.html"
+    if brains.visualizer_is_stale(project):
+        ui.info("the picture is older than the graph, redrawing it (no model needed)")
+        try:
+            graphify = find_exe("graphify")
+        except FileNotFoundError:
+            ui.error("graphify not found, cannot redraw")
+            return False
+        with ui.working("redrawing the graph"):
+            result = subprocess.run(
+                [graphify, "cluster-only", str(project), "--no-label"],
+                capture_output=True, text=True)
+        if result.returncode != 0 or not html.exists():
+            ui.raw(result.stdout)
+            ui.raw(result.stderr, stderr=True)
+            if not html.exists():
+                ui.error("could not draw the graph")
+                return False
+            ui.warn("redraw failed, opening the previous picture")
+
+    if not html.exists():
+        ui.error("graphify has not written a picture for this graph yet")
+        ui.hint("rebuild it with:", f"brain sync {ui.short_path(project)} --full")
+        return False
+
+    webbrowser.open(html.as_uri())
+    ui.ok("opened in your browser:", html)
+    return True
 
 
 # ---------------------------------------------------- connector creation ----

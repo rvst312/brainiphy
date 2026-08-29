@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Your brains.** `brain` now opens on the list of every brain on this
+  machine — how far along each is, how many sources feed it, how big its graph
+  is, when it last synced — and you open one, add one, or remove one from
+  there. The same list is `brain list`, with `brain add` and `brain forget`
+  behind it. Brains register themselves as you create them. Removing one only
+  removes the entry: nothing inside the brain is touched, ever.
+- `brain view` opens graphify's interactive graph in the browser, redrawing it
+  first if it is older than the graph. `graphify extract` writes `graph.json`
+  without redrawing `graph.html`, so the picture was quietly the previous one
+  after every full rebuild. The redraw uses `cluster-only --no-label` and costs
+  no tokens.
+- `brain status` now says of each source whether it can actually run, and why
+  not when it cannot ("needs code", "needs LOCATION_ID"), alongside how many
+  records it has pulled in. A script being present never answered the question
+  anyone was asking.
 - Documents can be indexed with your **Claude Code subscription** instead of an
   API key. With no key configured and the `claude` CLI installed, `brain sync`
   picks graphify's `claude-cli` backend, which authenticates against your
@@ -93,6 +108,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Paragraphs inside the app's box wrapped two columns too wide and broke into
+  ragged lines. `FRAME_CHROME` counted the border but not the panel's padding.
 - A scheduled sync now runs `brain sync --full`. Without it the LaunchAgent
   rebuilt with `graphify update`, a local AST pass that never reads documents:
   new files were mirrored into `raw/` and never entered the graph, while every

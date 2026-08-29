@@ -164,6 +164,26 @@ brain schedule ~/clients/acme --interval-minutes 15 --load  # keep it fresh
 
 Output is rendered with [Rich](https://github.com/Textualize/rich): colored status icons, tables for `status` and `sync --dry-run`, spinners while connectors run. Color is dropped automatically when output isn't a terminal (and when `NO_COLOR` is set), so piping to a file or a log still gives clean text.
 
+### `brain list`
+
+Every brain on this machine: how much of the setup is done, how many sources feed it, how big its graph is and when it last synced. Brains are added here automatically when you create one.
+
+```
+brain    setup  sources           graph      last sync
+acme     7/7    2                 20 nodes   2h ago
+clinica  4/7    2 (1 unfinished)  not built  never
+```
+
+### `brain add [folder]` / `brain forget <folder>`
+
+`add` registers a brain that already exists — one made before this list did, or one that arrived with a cloned repo. At a terminal, run it with no argument to browse for the folder.
+
+`forget` removes a brain from the list and **touches nothing inside it**. The connectors, the graph and the mirrored documents all stay exactly where they are, and `brain add` puts the entry back. Deleting a brain for real is `rm`, on purpose.
+
+### `brain view [project]`
+
+Opens graphify's interactive graph in your browser. If the picture is older than the graph it is redrawn first with `graphify cluster-only --no-label`, which costs no tokens — worth knowing because `graphify extract` writes `graph.json` without redrawing `graph.html`, so after a full rebuild the picture would otherwise silently be the previous one.
+
 ### `brain new [project]`
 
 The guided setup, and the front door: a checklist of the seven steps that knows which ones this brain has

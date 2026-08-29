@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -31,13 +33,23 @@ def quiet():
 
 
 class TempProjectTestCase(unittest.TestCase):
-    """A throwaway directory per test, cleaned up whatever happens."""
+    """A throwaway directory per test, cleaned up whatever happens.
+
+    BRAINIPHY_HOME is redirected into it for every test, not just the ones
+    about the brains list: scaffolding a project registers it, so without this
+    a plain test run would quietly append temp folders to the developer's own
+    list of brains.
+    """
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         self.project = self.tmp / "acme-brain"
+
+        patcher = mock.patch.dict(os.environ, {"BRAINIPHY_HOME": str(self.tmp / "config")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def scaffold(self) -> Path:
         """A project as `brain init` leaves it."""
