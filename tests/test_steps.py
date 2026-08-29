@@ -10,6 +10,7 @@ import at all — so these tests write source files rather than modules.
 """
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -168,6 +169,26 @@ class RenderTests(TempProjectTestCase):
             steps.render(steps.inspect(self.project), verbose=True)
             steps.render_status(self.project)
         self.assertIn("crm", buf.getvalue())
+
+
+class SkillDocTests(unittest.TestCase):
+    """SKILL.md's playbook and steps.py are two renderings of one process.
+
+    Nothing enforced that, and they drifted: SKILL.md grew an "Inventory
+    sources with the user" step that has no command and no counterpart here,
+    which pushed every step after it one out of line — so `brain guide` said
+    "step 4" and the playbook an agent was following meant something else by
+    it. Both drifted silently, because neither file imports the other and no
+    screen shows them side by side.
+    """
+
+    HEADING = re.compile(r"^### (\d+)\. (.+)$", re.MULTILINE)
+
+    def test_playbook_headings_match_the_checklist(self):
+        skill = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(encoding="utf-8")
+        found = [(int(n), title.strip()) for n, title in self.HEADING.findall(skill)]
+        expected = [(s.number, s.title) for s in steps.inspect(Path("/nonexistent")).steps]
+        self.assertEqual(found, expected)
 
 
 if __name__ == "__main__":

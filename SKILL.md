@@ -29,34 +29,47 @@ Source lives in `src/brainiphy_cli/` (this directory, global — installed once,
 
 Commands:
 ```
-brain  /  brain new [project]                   open the app: the 7 steps as a checklist, run the one you
-                                                  are on, and it advances to the next. For the human at a
-                                                  terminal. Needs a TTY — never call it from a script or a
-                                                  non-interactive agent turn.
+brain  /  brain new [project]                   open the app: the brains on this machine, and inside one,
+                                                  the 7 steps as a checklist — run the one you are on and
+                                                  it advances. For the human at a terminal. Needs a TTY —
+                                                  never call it from a script or a non-interactive turn.
 brain guide [project] [--verbose]               print the 7 steps, which are already done, and the exact
                                                   next command. Read-only, safe anywhere.
-brain init [project]                          scaffold connectors/, .gitignore, .graphifyignore
+brain list                                      every brain on this machine: setup progress, source count,
+                                                  graph size, last sync. Read off each brain at display
+                                                  time, never cached.
+brain add [project]                             register an existing brain so it appears in `brain list`
+                                                  (creating one registers it already; this is for brains
+                                                   that predate the list, or arrived with a clone)
+brain forget <project>                          remove it from the list. Deletes NOTHING inside the brain
+                                                  — say so when a user asks to "remove" one, and make them
+                                                  reach for `rm` themselves if they meant the data.
+brain view [project]                            open the interactive graph in a browser (redrawn first if
+                                                  stale; costs no tokens)
+brain init [project]                            scaffold connectors/, .gitignore, .graphifyignore
                                                   (no project + a TTY -> interactive folder picker;
                                                    always pass the path explicitly when scripting)
-brain presets                                   list the connectors that are already written (see step 4)
+brain presets                                   list the connectors that are already written (see step 3)
 brain new-connector <project> <name> [--interval-minutes N]
                     [--preset NAME [--var K=V ...] | --mirror FOLDER | --api BASE_URL]
                                                   write connectors/<name>/sync.py and register it. Which
-                                                  template depends on the flag — see step 4 for the order
+                                                  template depends on the flag — see step 3 for the order
                                                   to try them in. --var fills a constant in the generated
                                                   file (repeatable); it can also override SECRET_ITEM.
                                                   The registry entry records the kind as `type:`
                                                   (local-folder / http-api / custom, or the preset's own
                                                   name); it is display metadata, nothing branches on it.
-brain sync [project] [--dry-run] [--full]       run due connectors, rebuild the graph if anything changed.
+brain sync [project] [--dry-run] [--full] [--backend NAME]
+                                                  run due connectors, rebuild the graph if anything changed.
                                                   --full forces `graphify extract` (see "Building the graph")
 brain connect-claude [project] [--desktop] [--trust-desktop]
                                                   graphify claude install; optionally MCP server + trusted folder in Desktop
 brain schedule [project] --interval-minutes N [--load]
-                                                  generate (and optionally load) a LaunchAgent that runs `brain sync`
+                                                  generate (and optionally load) a LaunchAgent that runs
+                                                  `brain sync <project> --full` (see step 7 for the --full)
 brain secret set <item>                         prompt (hidden input) and store in the macOS Keychain
 brain secret get <item>                         read a stored secret (debugging only)
-brain status [project]                          connectors, due/not-due, current graph size, next step
+brain status [project]                          connectors, whether each can actually run, graph size, next step
 ```
 
 **As an agent, prefer `brain guide <project>` over reasoning about state yourself** — it reports the same seven
@@ -64,11 +77,11 @@ steps this playbook describes, already resolved against what is on disk, so you 
 guess which one comes next.
 
 **One front door for the human, another for you.** Bare `brain` (equivalently `brain new`) opens the app: the
-seven steps below rendered as a checklist, each runnable in place, advancing as they complete. `brain init` at
-a terminal scaffolds and then continues into it. All of that reads keypresses and blocks on prompts, and
-refuses outright when stdin is not a TTY. Never call it from an agent turn or a script — use the named
-commands, which do exactly the same work. When a user asks "how do I do X from now on", point them at
-`brain`; when *you* do X, use the command.
+brains list first, and inside a brain the seven steps below as a checklist, each runnable in place, advancing
+as they complete. `brain init` at a terminal scaffolds and then continues into it. All of that reads keypresses
+and blocks on prompts, and refuses outright when stdin is not a TTY. Never call it from an agent turn or a
+script — use the named commands, which do exactly the same work. When a user asks "how do I do X from now on",
+point them at `brain`; when *you* do X, use the command.
 
 Every project-level file (`connectors/registry.yaml`, `connectors/<name>/sync.py`) is generated by `brain`, not hand-copied — `connector_template.py`'s contract imports `brainiphy_cli.frontmatter` / `brainiphy_cli.keychain` as a real installed package, no path hacking.
 
@@ -79,43 +92,39 @@ Every project-level file (`connectors/registry.yaml`, `connectors/<name>/sync.py
 ## The playbook
 
 The seven steps below are also encoded in `src/brainiphy_cli/steps.py`, which is what `brain guide` renders and
-the app walks. **If you change the process here, change it there too** — the CLI is the version a user sees.
+the app walks. **They are two renderings of one process: the numbering, the order and the titles must match.**
+If you change the process here, change it there too — the CLI is the version a user sees, and the two drift
+silently, so a step that exists in only one of them is a bug in whichever you are not reading.
 
 Run these steps in order when bootstrapping a brain for a new business/folder. Run `brain guide <project>` first
 to see which are already done rather than checking by hand.
 
-### 1. Install graphify (if not already)
+### 1. Install graphify
 ```
 pip3 install --user graphifyy
 ```
 Verify: `graphify --version`.
 
-### 2. Inventory sources with the user
-Ask what feeds this brain: local folders, CRM, Drive, other SaaS. Don't assume — every business is different. This is the one step that must stay a real conversation, not automation.
-
-### 3. Scaffold the project
+### 2. Scaffold the project
 ```
 brain init <project>
 ```
+Writes `connectors/registry.yaml`, `.gitignore` and `.graphifyignore` — the last of these is what stops graphify
+indexing the connector scripts themselves as source code.
 
-### 4. For each source, reason out the connection (cheapest first)
+### 3. Add data sources
 
-Work down this list and stop at the first one that fits — each rung costs meaningfully more than the one above it.
+**Start by asking what feeds this brain**: local folders, CRM, Drive, other SaaS. Don't assume — every business
+is different, and this is the part of the playbook that must stay a real conversation rather than automation.
+It is not a step of its own precisely because it has no command; it is how you find out what step 3 has to do.
 
-1. **A system with a preset** → check `brain presets` first, always. A preset is a finished connector for one vendor; installing it costs the account id and the credential:
+Then, for each source, work down this list and stop at the first rung that fits — each one costs meaningfully
+more than the one above it.
+
+1. **A system with a preset** → check `brain presets` first, always. A preset is a finished connector for one vendor; installing it costs only the account id and the credential, both of which are step 4:
    ```
    brain new-connector <project> <name> --preset gohighlevel --var LOCATION_ID=<id>
-   brain secret set graphify-<project-slug>-<name>
    ```
-   Then, **before the first sync**, run the generated script with `--probe`. It reports which objects the credential can actually read, writing nothing:
-   ```
-   "$(head -1 "$(which brain)" | cut -c3-)" <project>/connectors/<name>/sync.py --out /tmp/probe --probe
-   ```
-   Name the interpreter, as above, rather than running the script directly: its shebang is `env python3`, and
-   on a machine with several Python 3 installs that need not be the one `brainiphy_cli` is installed under —
-   the script then dies on its own import. `brain new-connector` prints the exact command with the right
-   interpreter already filled in, and step 4 of the app runs it for you.
-   Expect some objects to come back "no scope" — a vendor token carries only the scopes it was issued with, and no API reports which those are, so this is discovery, not failure. Tell the user which objects are missing and what widening the token would add; it starts working on the next sync with no code change.
 2. **Local folder already on disk** → mirror it, don't symlink it: graphify does not follow symlinks and there is no flag to enable it (verified against its `detect.py`: `follow_symlinks` defaults to `False`, no CLI wiring). One command, nothing to implement:
    ```
    brain new-connector <project> <name> --mirror <folder> --interval-minutes <N>
@@ -127,26 +136,50 @@ Work down this list and stop at the first one that fits — each rung costs mean
    ```
    brain new-connector <project> <name> --api https://api.example.com --interval-minutes <N>
    ```
-   The generated file already has the network plumbing — retries, both pagination styles, missing-scope handling, `--probe`, the exit code. What you write is one `collect_*` function per object plus the `COLLECTORS` list. Do **not** hand-roll `urllib` in a connector; use the `HttpClient` the template sets up (`src/brainiphy_cli/httpclient.py` documents why each piece is not optional).
-
-   When it works, consider promoting it to a preset so the next client gets it for free — drop the file in `src/brainiphy_cli/presets/` and register it in that package's `PRESETS`.
+   The generated file already has the network plumbing — retries, both pagination styles, missing-scope handling, `--probe`, the exit code. What you write is one `collect_*` function per object plus the `COLLECTORS` list — that is step 4. Do **not** hand-roll `urllib` in a connector; use the `HttpClient` the template sets up (`src/brainiphy_cli/httpclient.py` documents why each piece is not optional).
 6. **Anything that isn't an HTTP API** (a database, a local export, a scraped system):
    ```
    brain new-connector <project> <name> --interval-minutes <N>
    ```
-   Then implement `fetch_records()` in the generated `connectors/<name>/sync.py`.
+   The generated file is a stub; `fetch_records()` is step 4.
 
-Credentials, for every rung above that needs one:
+Rung 3 aside — `graphify add` writes into `raw/` without a connector — every rung leaves a registered connector
+behind, which is what `brain guide` counts when it decides this step is done.
+
+### 4. Finish the custom connectors
+
+Rungs 2 and 3 above leave nothing to do. Everything else needs one or both of a credential and some code, and
+`brain guide <project>` names exactly which connectors are unfinished and which of the two reasons applies —
+ask it rather than opening files to find out.
+
+**Credentials**, for every connector that needs one:
 ```
 brain secret set graphify-<project-slug>-<name>
 ```
 Prompts for hidden input. Never accept a secret value as chat text or a CLI argument — shell history, process listings and launchd logs would all leak it. If a user pastes one into the conversation anyway, store it, then tell them to rotate it.
 
+**Probe an API or preset connector before the first sync.** It reports which objects the credential can actually
+read, and writes nothing:
+```
+"$(head -1 "$(which brain)" | cut -c3-)" <project>/connectors/<name>/sync.py --out /tmp/probe --probe
+```
+Name the interpreter, as above, rather than running the script directly: its shebang is `env python3`, and on a
+machine with several Python 3 installs that need not be the one `brainiphy_cli` is installed under — the script
+then dies on its own import. `brain new-connector` prints the exact command with the right interpreter already
+filled in, and this step of the app runs it for you. `--only <collector>` narrows it to one object.
+
+Expect some objects to come back "no scope" — a vendor token carries only the scopes it was issued with, and no API reports which those are, so this is discovery, not failure. Tell the user which objects are missing and what widening the token would add; it starts working on the next sync with no code change.
+
+**Code**, where a rung left some: `fetch_records()` in a stub, or one `collect_*` function per object plus the
+`COLLECTORS` list in an `--api` connector. When an API connector works, consider promoting it to a preset so the
+next client gets it for free — drop the file in `src/brainiphy_cli/presets/` and register it in that package's
+`PRESETS`.
+
 **Writing records that are worth querying.** Two things decide whether the graph can answer real questions:
 - Resolve foreign keys to names before writing. `stage_id: f7a80aa4-…` is dead weight; `stage: "Awaiting payment"` is what people ask about. Put the resolved value in the frontmatter too, so it can be filtered without parsing prose.
 - Key each record by a stable remote id. `write_record()` slugs it into the filename, so re-runs overwrite in place instead of adding a duplicate node every sync.
 
-### 5. Initial build
+### 5. Run the first sync
 ```
 brain sync <project> --full
 ```
@@ -181,17 +214,23 @@ backend needs a real API key (or an OpenAI-compatible `OPENAI_BASE_URL`, which t
 For a no-cost run, the options are the Claude subscription above, a local model via `--backend ollama`, or running
 `/graphify` inside a Claude session so the agent does the extraction itself.
 
-### 6. Connect to Claude
+### 6. Connect it to Claude
 ```
 brain connect-claude <project> --desktop --trust-desktop
 ```
 `--desktop` registers an MCP server in Claude Desktop's `claude_desktop_config.json` (backed up automatically before editing). `--trust-desktop` **appends** the project to `localAgentModeTrustedFolders` (never replaces existing entries — confirm with the user first if they explicitly want a replace instead, that's a manual edit, not the CLI default). Omit both flags to wire only Claude Code (`CLAUDE.md` + hooks), lower-risk default for a first pass.
 
-### 7. Ongoing maintenance
-Only once there is at least one real connector registered — `brain schedule` refuses otherwise:
+### 7. Keep it in sync
+Only once there is at least one real connector registered — `brain schedule` refuses otherwise, because a sync
+loop with nothing to sync is a silent no-op that is confusing to debug later:
 ```
 brain schedule <project> --interval-minutes 15 --load
 ```
+The scheduled command is `brain sync <project> --full`, and the `--full` is load-bearing: the incremental pass
+never indexes documents, so without it an unattended brain mirrors new files in and reports success while the
+graph quietly stops being current. It is also cheap — graphify gates the extract pass behind its own manifest
+and semantic cache, so a run with nothing changed costs about a second and no tokens.
+
 `brain sync <project>` is also safe to run by hand or on request ("sync the CRM now").
 
 ## Security notes
