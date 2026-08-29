@@ -226,7 +226,7 @@ def cmd_presets(args: argparse.Namespace) -> int:
 def cmd_sync(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     ui.header("brain sync" + (" (dry run)" if args.dry_run else ""), project)
-    report = sync_mod.run(project, dry_run=args.dry_run, full=args.full)
+    report = sync_mod.run(project, dry_run=args.dry_run, full=args.full, backend=args.backend)
     if args.dry_run:
         return 0
 
@@ -356,6 +356,13 @@ def main() -> int:
         action="store_true",
         help="Full re-index (graphify extract) instead of the incremental code-only update. "
         "Needed to pick up document changes; happens automatically on the first build.",
+    )
+    p.add_argument(
+        "--backend",
+        metavar="NAME",
+        help="Which LLM backend indexes the documents: claude-cli (your Claude Code "
+        "subscription, no API key), or claude/gemini/openai/deepseek/kimi/ollama… "
+        "Default: whichever API key is set, falling back to claude-cli when none is.",
     )
     p.set_defaults(func=cmd_sync)
 

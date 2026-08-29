@@ -9,6 +9,7 @@ sync.py in the project, not extending this orchestrator.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import site
 import subprocess
@@ -33,6 +34,50 @@ class SyncReport:
 # Distinguishes "graphify has nothing to do" from "graphify cannot run" — the
 # second needs an actionable message, not a bare non-zero exit.
 _NO_KEY_MARKERS = ("no LLM API key", "requires ANTHROPIC_API_KEY", "API key")
+
+# graphify's `claude-cli` backend shells out to the locally-installed `claude`
+# binary (`claude -p --output-format json`), so the semantic pass authenticates
+# with the user's Claude Code Pro/Max subscription and needs no API key at all.
+CLAUDE_CLI_BACKEND = "claude-cli"
+
+# Every environment variable graphify's own detect_backend() looks at. It never
+# returns claude-cli — that backend is deliberately excluded there, because it
+# runs another program rather than reading a key — so choosing it is our job.
+# The list only gates the automatic choice: if any of these is set, the user
+# already configured a backend and we leave the decision to graphify.
+_BACKEND_ENV_VARS = (
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENAI_API_KEY",
+    "MOONSHOT_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AWS_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "OLLAMA_BASE_URL",
+    "OLLAMA_HOST",
+)
+
+
+def resolve_backend(explicit: str | None = None) -> str | None:
+    """Which `--backend` to hand `graphify extract`, or None to let graphify pick.
+
+    An explicit choice always wins. Otherwise: a configured API key stays in
+    charge (graphify's detection is richer than ours — custom providers, Azure
+    endpoints), and only when *nothing* is configured do we fall back to the
+    Claude Code subscription. That fallback is the whole point: a first sync on
+    a machine with Claude Code installed should index documents, not stop at
+    "no LLM API key found".
+    """
+    if explicit:
+        return explicit
+    if any(os.environ.get(var) for var in _BACKEND_ENV_VARS):
+        return None
+    if shutil.which("claude"):
+        return CLAUDE_CLI_BACKEND
+    return None
 
 
 def find_graphify() -> str:
@@ -80,7 +125,7 @@ def _mark_ran(project: Path, name: str) -> None:
     state_file.write_text(json.dumps({"last_run": datetime.now(timezone.utc).isoformat()}))
 
 
-def build_graph(project: Path, *, full: bool = False) -> tuple[bool, str]:
+def build_graph(project: Path, *, full: bool = False, backend: str | None = None) -> tuple[bool, str]:
     """Rebuild the graph. Returns (succeeded, what-was-run).
 
     Two different graphify commands, and picking the wrong one silently does
@@ -92,6 +137,9 @@ def build_graph(project: Path, *, full: bool = False) -> tuple[bool, str]:
         no API key. Cheap, but a no-op on a corpus of documents.
 
     So: full pass the first time (and whenever asked), incremental afterwards.
+
+    Only the full pass takes a backend — `update` is a local AST pass with no
+    model in it, and passing --backend to it is not just useless but rejected.
 
     --no-gitignore is not optional here. graphify honors .gitignore, and
     `brain init` puts raw/ in it (mirrored content should not be committed) —
@@ -105,6 +153,14 @@ def build_graph(project: Path, *, full: bool = False) -> tuple[bool, str]:
 
     if full or first_build:
         cmd = [graphify, "extract", str(project), "--no-gitignore"]
+        chosen = resolve_backend(backend)
+        if chosen:
+            cmd += ["--backend", chosen]
+        if chosen == CLAUDE_CLI_BACKEND:
+            # Worth saying out loud: the run is about to spend plan usage rather
+            # than API credit, and it runs one chunk at a time (graphify forces
+            # concurrency 1 for this backend), so a big corpus takes a while.
+            ui.info("indexing through your Claude Code subscription (no API key needed)")
     else:
         cmd = [graphify, "update", str(project)]
     # Short label for the report table — the full command line would wrap it.
@@ -121,18 +177,20 @@ def build_graph(project: Path, *, full: bool = False) -> tuple[bool, str]:
     ui.raw(result.stderr, stderr=True)
 
     if any(marker in combined for marker in _NO_KEY_MARKERS):
-        # Not a brainiphy failure: indexing documents needs a model. Both ways
-        # out are worth spelling out, because the second one costs nothing.
+        # Not a brainiphy failure: indexing documents needs a model. Spell out
+        # every way out — the two that cost nothing extra come first, because a
+        # user without an API key is exactly who this message reaches.
         ui.error("graphify needs an LLM backend to index documents")
-        ui.hint("either export a key first, e.g.:", "export ANTHROPIC_API_KEY=…   # or GEMINI_API_KEY, OPENAI_API_KEY…")
+        ui.hint("use your Claude Code subscription (install Claude Code, then):", f"brain sync --backend {CLAUDE_CLI_BACKEND}")
         ui.hint("or let Claude Code do the extraction — open the project and run:", "/graphify")
+        ui.hint("or export a key first, e.g.:", "export ANTHROPIC_API_KEY=…   # or GEMINI_API_KEY, OPENAI_API_KEY…")
         return False, label
 
     ui.error(f"{label} failed")
     return False, label
 
 
-def run(project: Path, *, dry_run: bool = False, full: bool = False) -> SyncReport:
+def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: str | None = None) -> SyncReport:
     project = project.resolve()
     connectors = load_registry(project)
     report = SyncReport()
@@ -208,7 +266,7 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False) -> SyncRepo
     # A --full run rebuilds even when no connector was due: the corpus may have
     # changed underneath (a mirrored folder edited by hand, `graphify add`).
     if any_ran or full:
-        succeeded, label = build_graph(project, full=full)
+        succeeded, label = build_graph(project, full=full, backend=backend)
         if succeeded:
             ui.ok("graph rebuilt")
             report.graph_rebuilt = True

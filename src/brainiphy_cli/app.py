@@ -290,7 +290,7 @@ def _do_build(project: Path, *, full: bool = True) -> None:
     ui.clear()
     ui.header("first sync" if full else "sync", project)
     ui.info("Pulls every source in and indexes it. Documents need an LLM backend —")
-    ui.info("an API key, or Claude Code running /graphify in the folder.")
+    ui.info("your Claude Code subscription is used when no API key is set.")
     ui.blank()
 
     pending = steps.unimplemented_connectors(project)
