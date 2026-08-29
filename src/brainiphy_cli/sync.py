@@ -113,9 +113,15 @@ def is_due(project: Path, name: str, interval_minutes: float) -> bool:
         return True
     try:
         last_run = datetime.fromisoformat(json.loads(state_file.read_text())["last_run"])
-    except (json.JSONDecodeError, KeyError, ValueError):
+        elapsed_minutes = (datetime.now(timezone.utc) - last_run).total_seconds() / 60
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, OSError):
+        # An unreadable state file means "run it": a corrupt timestamp must
+        # cost one redundant run, never freeze a connector forever. TypeError
+        # is in here because a naive timestamp — hand-edited, or written by a
+        # build that predates the timezone — cannot be subtracted from an aware
+        # one, and that exception used to escape and take down the whole sync
+        # before any connector had run.
         return True
-    elapsed_minutes = (datetime.now(timezone.utc) - last_run).total_seconds() / 60
     return elapsed_minutes >= interval_minutes
 
 
@@ -215,8 +221,18 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
         dry_table = None
 
     for entry in connectors:
-        name = entry["name"]
-        interval = float(entry.get("interval_minutes", 60))
+        # registry.yaml is a file people edit by hand. A malformed entry costs
+        # that connector and is reported; it does not abort the ones after it.
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not name:
+            ui.error("registry entry with no name, skipped:", entry)
+            report.errors.append(f"registry entry without a name: {entry!r}")
+            continue
+        try:
+            interval = float(entry.get("interval_minutes", 60))
+        except (TypeError, ValueError):
+            ui.warn(f"{name}: unreadable interval_minutes, using 60")
+            interval = 60
         script = project / "connectors" / name / "sync.py"
         due = is_due(project, name, interval)
 
