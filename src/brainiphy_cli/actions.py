@@ -186,7 +186,12 @@ def _store_secret(project: Path, name: str, label: str) -> None:
     except (EOFError, KeyboardInterrupt):
         raise Cancelled
     if value:
-        keychain.set_secret(item, value)
+        try:
+            keychain.set_secret(item, value)
+        except keychain.SecretWriteError as exc:
+            ui.error(str(exc))
+            ui.hint("try again with:", f"brain secret set {item}")
+            return
         ui.ok("stored in the Keychain:", item)
     else:
         ui.warn("empty value, skipped")

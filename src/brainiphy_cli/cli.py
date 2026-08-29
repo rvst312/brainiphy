@@ -270,7 +270,13 @@ def cmd_secret_set(args: argparse.Namespace) -> int:
     if not value:
         ui.error("empty value, cancelled")
         return 1
-    keychain.set_secret(args.item, value)
+    try:
+        keychain.set_secret(args.item, value)
+    except keychain.SecretWriteError as exc:
+        # Saying "stored" when it was not moves the failure to the connector's
+        # next run, where a missing credential reads as an auth problem.
+        ui.error(str(exc))
+        return 1
     ui.ok("stored in the Keychain:", args.item)
     return 0
 

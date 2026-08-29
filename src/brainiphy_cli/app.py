@@ -407,8 +407,12 @@ def _tool_credentials(project: Path) -> None:
         return
     with ui.framed("credentials", ui.short_path(project)):
         if value:
-            keychain.set_secret(item, value)
-            ui.ok("stored in the Keychain:", item)
+            try:
+                keychain.set_secret(item, value)
+            except keychain.SecretWriteError as exc:
+                ui.error(str(exc))
+            else:
+                ui.ok("stored in the Keychain:", item)
         else:
             ui.warn("empty value, nothing stored")
     _pause()

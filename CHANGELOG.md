@@ -93,6 +93,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `brain secret set` no longer passes the credential to `security` as a
+  command-line argument. Process arguments are readable by anything running as
+  the same user for the lifetime of the command, and also reach shell history
+  and launchd logs — the leak this project's own rules forbid. The value now
+  goes to `security`'s stdin. Storing is additionally confirmed by reading the
+  value back, because `security` exits 0 on paths that store nothing or store
+  something else, and a credential falsely reported as saved surfaces much
+  later as an authentication failure in a connector.
 - A scheduled sync could not find `graphify` or `claude`. launchd gives a job
   only `/usr/bin:/bin:/usr/sbin:/sbin`, so `brain schedule` now resolves those
   directories while it still has the user's environment and pins them into the

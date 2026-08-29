@@ -12,7 +12,10 @@ Worth knowing before reviewing a change, because these are the boundaries a
 patch can quietly cross:
 
 - **Credentials live in the macOS Keychain, and only there.** Connector scripts
-  read them through `keychain.get_secret()`. A secret must never travel as a
+  read them through `keychain.get_secret()`. Storing one is done by writing the
+  value to `security`'s stdin (a bare `-w` as the last option), never by passing
+  it as `-w <value>`: process arguments are readable by anything running as the
+  same user for as long as the command runs. A secret must never travel as a
   CLI argument, a value in `connectors/registry.yaml`, or any file brainiphy
   writes — shell history, `ps` output and launchd logs all capture those.
   `brain secret get` prints to stdout unstyled and alone, so it can be piped
