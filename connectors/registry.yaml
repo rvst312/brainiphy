@@ -1,6 +1,6 @@
-# Registro de conectores para este cerebro. Formato consumido por `brain sync`.
+# Connector registry for this brain. Format consumed by `brain sync`.
 #
-# Cada entrada requiere un script en connectors/<name>/sync.py — usa
-# `brain new-connector <project> <name>` para crearlo desde la plantilla.
+# Every entry requires a script at connectors/<name>/sync.py — use
+# `brain new-connector <project> <name>` to create one from the template.
 
 connectors: []
