@@ -362,11 +362,23 @@ done
 if [ -n "$FOUND_KEY" ]; then
   ok "$FOUND_KEY is set — graphify can index documents"
 else
-  warn "no LLM API key in the environment"
-  info "graphify needs one to index documents (a code-only corpus does not). Either:"
-  printf '      export ANTHROPIC_API_KEY=…   %s# or GEMINI_API_KEY, OPENAI_API_KEY…%s\n' "$DIM" "$OFF"
-  printf '      %sor open the project in Claude Code and run%s /graphify %s— costs nothing extra%s\n' \
-    "$DIM" "$OFF" "$DIM" "$OFF"
+  # No key is not a problem when `claude` is installed: sync.resolve_backend()
+  # falls back to graphify's claude-cli backend, which bills the user's Pro/Max
+  # plan. Saying "no LLM API key" and stopping there sent people off to create
+  # an API key they did not need, at the one moment they are most likely to
+  # believe the install is unfinished.
+  if command -v claude >/dev/null 2>&1; then
+    ok "no API key, and none needed — indexing will use your Claude Code subscription"
+    printf '      %sbrain sync picks graphify'"'"'s claude-cli backend, billed to your Pro/Max plan%s\n' "$DIM" "$OFF"
+    printf '      %sset an API key instead if you prefer:%s export ANTHROPIC_API_KEY=…\n' "$DIM" "$OFF"
+  else
+    warn "no LLM API key, and the claude CLI is not installed"
+    info "graphify needs a model to index documents (a code-only corpus does not). Either:"
+    printf '      export ANTHROPIC_API_KEY=…   %s# or GEMINI_API_KEY, OPENAI_API_KEY…%s\n' "$DIM" "$OFF"
+    printf '      %sor install Claude Code and let brain sync use your subscription%s\n' "$DIM" "$OFF"
+    printf '      %sor open the project in Claude Code and run%s /graphify %s— costs nothing extra%s\n' \
+      "$DIM" "$OFF" "$DIM" "$OFF"
+  fi
 fi
 
 step "Verifying"

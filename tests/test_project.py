@@ -323,5 +323,44 @@ class ScaffoldTests(TempProjectTestCase):
         self.assertIn("raw/", text)
 
 
+class GraphifyInstallTests(unittest.TestCase):
+    """`brain sync` finds graphify by PATH lookup and shells out to it, so the
+    two have to live under one interpreter.
+
+    Every screen that offers to install graphify used to say `pip3 install
+    --user graphifyy`, which resolves to whichever pip3 is first on PATH. When
+    that is not the interpreter running `brain`, the install *succeeds* and
+    `brain sync` then reports graphify missing on a machine where it is plainly
+    installed — so the test is about which interpreter is named, not about
+    whether a command comes back.
+    """
+
+    def test_the_running_interpreter_is_named_never_bare_pip(self):
+        argv = project_mod.graphify_install_argv()
+        self.assertEqual(argv[:3], [sys.executable, "-m", "pip"])
+        self.assertIn("graphifyy", argv)
+        self.assertNotIn("pip3", argv)
+
+    def test_inside_a_venv_it_does_not_pass_user(self):
+        # --user is meaningless in a venv and pip refuses the combination.
+        with mock.patch.object(sys, "prefix", "/venv"), \
+                mock.patch.object(sys, "base_prefix", "/usr"):
+            self.assertNotIn("--user", project_mod.graphify_install_argv())
+
+    def test_outside_a_venv_it_passes_user(self):
+        # Without it, PEP 668 refuses the install outright on a Homebrew or
+        # system Python — which is most Macs.
+        with mock.patch.object(sys, "prefix", "/usr"), \
+                mock.patch.object(sys, "base_prefix", "/usr"):
+            self.assertIn("--user", project_mod.graphify_install_argv())
+
+    def test_the_pasteable_command_matches_the_argv(self):
+        # The hint a user copies and the argv the app runs must not drift.
+        self.assertEqual(
+            project_mod.graphify_install_command().split(),
+            project_mod.graphify_install_argv(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

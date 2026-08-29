@@ -89,9 +89,14 @@ def find_graphify() -> str:
     candidate = Path(site.getuserbase()) / "bin" / "graphify"
     if candidate.exists():
         return str(candidate)
+    # Imported here, not at module scope: project.py imports this module, and
+    # the cycle would break both. Same reason type_label() is deferred in run().
+    from brainiphy_cli import project as project_mod
+
     raise FileNotFoundError(
         "graphify CLI not found on PATH or in the user site bin dir "
-        f"({Path(site.getuserbase()) / 'bin'}). Install it with: pip3 install --user graphifyy"
+        f"({Path(site.getuserbase()) / 'bin'}). "
+        f"Install it with: {project_mod.graphify_install_command()}"
     )
 
 
