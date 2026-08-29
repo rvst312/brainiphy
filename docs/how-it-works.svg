@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="392" viewBox="0 0 980 392" role="img" aria-label="How brainiphy turns scattered business data into a graph Claude can query">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 10 5 0 10z" fill="#6B7482"/></marker><marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 10 5 0 10z" fill="#B07CF6"/></marker></defs>
+<rect width="980" height="392" rx="12" fill="#111419"/>
+<text x="122.0" y="32.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" letter-spacing="1.4">YOUR DATA</text>
+<text x="376.0" y="32.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" letter-spacing="1.4">CONNECTORS</text>
+<text x="630.0" y="32.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" letter-spacing="1.4">THE GRAPH</text>
+<text x="858.0" y="32.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="600" text-anchor="middle" letter-spacing="1.4">CLAUDE</text>
+<rect x="24.0" y="50.0" width="196.0" height="36.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<text x="38.0" y="73.0" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="90.0" lengthAdjust="spacing">local folder</text>
+<text x="206.0" y="73.0" fill="#6FD08C" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="400" text-anchor="end">ready</text>
+<rect x="24.0" y="94.0" width="196.0" height="36.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<text x="38.0" y="117.0" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="90.0" lengthAdjust="spacing">preset (CRM)</text>
+<text x="206.0" y="117.0" fill="#6FD08C" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="400" text-anchor="end">ready</text>
+<rect x="24.0" y="138.0" width="196.0" height="36.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<text x="38.0" y="161.0" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="60.0" lengthAdjust="spacing">http api</text>
+<text x="206.0" y="161.0" fill="#E0B44A" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="400" text-anchor="end">needs code</text>
+<rect x="24.0" y="182.0" width="196.0" height="36.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<text x="38.0" y="205.0" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="45.0" lengthAdjust="spacing">custom</text>
+<text x="206.0" y="205.0" fill="#E0B44A" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="400" text-anchor="end">needs code</text>
+<rect x="252.0" y="50.0" width="248.0" height="168.0" rx="8" fill="#151922" stroke="#3A3050" stroke-width="1"/>
+<text x="268.0" y="78.0" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="600" textLength="187.5" lengthAdjust="spacing">connectors/&lt;name&gt;/sync.py</text>
+<path d="M268.0 94.0H484.0" stroke="#2A303C"/>
+<text x="268.0" y="116.0" fill="#C9CEDA" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">one executable script per source</text>
+<text x="268.0" y="135.0" fill="#C9CEDA" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">writes Markdown + YAML frontmatter</text>
+<text x="268.0" y="154.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">file name = stable slug of the</text>
+<text x="268.0" y="173.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">remote id, so re-runs overwrite</text>
+<text x="268.0" y="192.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">in place instead of duplicating</text>
+<rect x="252.0" y="232.0" width="248.0" height="34.0" rx="8" fill="#151922" stroke="#3A3050" stroke-width="1"/>
+<text x="268.0" y="254.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">credentials</text>
+<text x="352.0" y="254.0" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12" font-weight="400" textLength="100.8" lengthAdjust="spacing">macOS Keychain</text>
+<rect x="532.0" y="50.0" width="196.0" height="168.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<text x="578.2" y="84.0" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11.5" font-weight="400" textLength="103.5" lengthAdjust="spacing">raw/&lt;name&gt;/*.md</text>
+<path d="M630.0 94.0v18" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="630.0" y="114.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="10.5" font-weight="400" text-anchor="middle">indexed by</text>
+<text x="574.8" y="136.0" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11.5" font-weight="400" textLength="110.4" lengthAdjust="spacing">graphify extract</text>
+<path d="M630.0 146.0v18" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<text x="550.6" y="188.0" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11.5" font-weight="400" textLength="158.7" lengthAdjust="spacing">graphify-out/graph.json</text>
+<rect x="760.0" y="50.0" width="196.0" height="76.0" rx="8" fill="#151922" stroke="#3A3050" stroke-width="1"/>
+<text x="776.0" y="80.0" fill="#E8EBF1" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" text-anchor="start">Claude Code</text>
+<text x="776.0" y="102.0" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11.5" font-weight="400" textLength="117.3" lengthAdjust="spacing">CLAUDE.md + hooks</text>
+<rect x="760.0" y="142.0" width="196.0" height="76.0" rx="8" fill="#151922" stroke="#3A3050" stroke-width="1"/>
+<text x="776.0" y="172.0" fill="#E8EBF1" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" text-anchor="start">Claude Desktop</text>
+<text x="776.0" y="194.0" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="11.5" font-weight="400" textLength="131.1" lengthAdjust="spacing">graphify-mcp server</text>
+<path d="M234.0 68.0V200.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M220.0 68.0H234.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M220.0 112.0H234.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M220.0 156.0H234.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M220.0 200.0H234.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M234.0 134.0H244.0" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M508.0 134.0H524.0" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M736.0 134.0H734.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M734.0 88.0V180.0" stroke="#6B7482" stroke-width="1.5"/>
+<path d="M734.0 88.0H752.0" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<path d="M734.0 180.0H752.0" stroke="#6B7482" stroke-width="1.5" marker-end="url(#a)"/>
+<rect x="24.0" y="294.0" width="932.0" height="74.0" rx="8" fill="#171423" stroke="#B07CF6" stroke-width="1" stroke-dasharray="5 5"/>
+<path d="M54.0 324.0a13 13 0 1 0 13-13" stroke="#B07CF6" stroke-width="1.8" fill="none" marker-end="url(#p)"/>
+<text x="90.0" y="324.0" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="81.0" lengthAdjust="spacing">brain sync</text>
+<text x="90.0" y="346.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="start">runs only the connectors whose interval has elapsed, and rebuilds the graph only if one of them actually ran</text>
+<text x="835.0" y="324.0" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="105.0" lengthAdjust="spacing">brain schedule</text>
+<text x="940.0" y="346.0" fill="#6B7482" font-family="ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" text-anchor="end">a LaunchAgent that does it for you</text>
+</svg>

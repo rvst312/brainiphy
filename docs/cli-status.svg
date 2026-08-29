@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="635" height="344" viewBox="0 0 635 344" role="img" aria-label="brain status: the connectors table, the graph size, and how far the setup got">
+<rect width="635" height="344" rx="10" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<path d="M0 40.0h635" stroke="#2A303C" stroke-width="1"/>
+<circle cx="22" cy="20" r="4.5" fill="#333A47"/>
+<circle cx="40" cy="20" r="4.5" fill="#333A47"/>
+<circle cx="58" cy="20" r="4.5" fill="#333A47"/>
+<text x="82.0" y="24.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="12.5" font-weight="400" textLength="217.5" lengthAdjust="spacing">$ brain status ~/clients/acme</text>
+<text x="26.0" y="71.5" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="97.2" lengthAdjust="spacing">brain status</text>
+<text x="26.0" y="93.5" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="113.4" lengthAdjust="spacing">~/clients/acme</text>
+<text x="26.0" y="115.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="583.2" lengthAdjust="spacing">────────────────────────────────────────────────────────────────────────</text>
+<text x="26.0" y="137.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="48.6" lengthAdjust="spacing">source</text>
+<text x="107.0" y="137.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="32.4" lengthAdjust="spacing">type</text>
+<text x="220.4" y="137.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="40.5" lengthAdjust="spacing">ready</text>
+<text x="277.1" y="137.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="32.4" lengthAdjust="spacing">runs</text>
+<text x="503.9" y="137.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="56.7" lengthAdjust="spacing">records</text>
+<text x="26.0" y="159.5" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="32.4" lengthAdjust="spacing">docs</text>
+<text x="107.0" y="159.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="97.2" lengthAdjust="spacing">local folder</text>
+<text x="220.4" y="159.5" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="24.3" lengthAdjust="spacing">yes</text>
+<text x="277.1" y="159.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="202.5" lengthAdjust="spacing">every 60 min · up to date</text>
+<text x="503.9" y="159.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="32.4" lengthAdjust="spacing">1204</text>
+<text x="26.0" y="181.5" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="56.7" lengthAdjust="spacing">hubspot</text>
+<text x="107.0" y="181.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="64.8" lengthAdjust="spacing">http api</text>
+<text x="220.4" y="181.5" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="24.3" lengthAdjust="spacing">yes</text>
+<text x="277.1" y="181.5" fill="#E0B44A" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="178.2" lengthAdjust="spacing">every 30 min · due now</text>
+<text x="503.9" y="181.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="32.4" lengthAdjust="spacing">1227</text>
+<text x="26.0" y="225.5" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="8.1" lengthAdjust="spacing">✓</text>
+<text x="42.2" y="225.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="234.9" lengthAdjust="spacing">graph: 2431 nodes, 5870 edges</text>
+<text x="293.3" y="225.5" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="186.3" lengthAdjust="spacing">graphify-out/graph.json</text>
+<text x="26.0" y="247.5" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="8.1" lengthAdjust="spacing">↳</text>
+<text x="42.2" y="247.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="162.0" lengthAdjust="spacing">see it as a picture:</text>
+<text x="58.4" y="269.5" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="202.5" lengthAdjust="spacing">brain view ~/clients/acme</text>
+<text x="26.0" y="313.5" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="8.1" lengthAdjust="spacing">✓</text>
+<text x="42.2" y="313.5" fill="#C9CEDA" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="210.6" lengthAdjust="spacing">setup complete (7/7 steps)</text>
+</svg>

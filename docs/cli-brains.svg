@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="635" height="354" viewBox="0 0 635 354" role="img" aria-label="your brains — a brainiphy screen">
+<rect width="635" height="354" rx="10" fill="#111419"/>
+<rect x="10.5" y="10.5" width="614.2" height="333.0" rx="8" fill="#151922" stroke="#2A303C" stroke-width="1"/>
+<rect x="26" y="4" width="105.3" height="13" fill="#151922"/>
+<text x="34.1" y="15.5" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="89.1" lengthAdjust="spacing">your brains</text>
+<rect x="528.2" y="337.0" width="81.0" height="13" fill="#151922"/>
+<text x="536.3" y="347.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="64.8" lengthAdjust="spacing">2 brains</text>
+<text x="58.3" y="69.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="445.5" lengthAdjust="spacing">Each brain is a folder with its own sources and its own</text>
+<text x="58.3" y="91.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="340.2" lengthAdjust="spacing">graph. Open one to carry on setting it up.</text>
+<text x="50.2" y="135.5" fill="#B07CF6" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="8.1" lengthAdjust="spacing">❯</text>
+<text x="74.5" y="135.5" fill="#E8EBF1" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="32.4" lengthAdjust="spacing">acme</text>
+<text x="131.2" y="135.5" fill="#6FD08C" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="600" textLength="81.0" lengthAdjust="spacing">7/7 set up</text>
+<text x="90.7" y="157.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="340.2" lengthAdjust="spacing">2 sources  ·  2431 nodes  ·  synced 2h ago</text>
+<text x="90.7" y="179.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="97.2" lengthAdjust="spacing">in ~/clients</text>
+<text x="74.5" y="223.5" fill="#5CC8D8" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="56.7" lengthAdjust="spacing">clinica</text>
+<text x="155.5" y="223.5" fill="#E0B44A" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="81.0" lengthAdjust="spacing">4/7 set up</text>
+<text x="90.7" y="245.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="405.0" lengthAdjust="spacing">2 sources  ·  graph not built yet  ·  synced never</text>
+<text x="90.7" y="267.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="97.2" lengthAdjust="spacing">in ~/clients</text>
+<text x="58.3" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="56.7" lengthAdjust="spacing">↑↓ move</text>
+<text x="139.3" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="48.6" lengthAdjust="spacing">↵ open</text>
+<text x="212.2" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="40.5" lengthAdjust="spacing">n new</text>
+<text x="277.0" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="40.5" lengthAdjust="spacing">a add</text>
+<text x="341.8" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="56.7" lengthAdjust="spacing">v graph</text>
+<text x="422.8" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="64.8" lengthAdjust="spacing">d remove</text>
+<text x="511.9" y="311.5" fill="#6B7482" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="13.5" font-weight="400" textLength="48.6" lengthAdjust="spacing">q quit</text>
+</svg>

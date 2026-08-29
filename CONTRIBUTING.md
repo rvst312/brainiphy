@@ -160,6 +160,20 @@ These are the ones that are easy to violate without noticing:
   commands cannot drift apart.
 - **`steps.inspect()` stays cheap and read-only.** It runs on every
   `brain status`; no subprocess calls in it.
+- **The README figures are generated.** `docs/*.svg` comes out of
+  `scripts/gen-docs-images.py` — the pipeline diagram and three mockups of real
+  `brain` screens. Change a screen one of them depicts and re-run it:
+
+  ```sh
+  python3 scripts/gen-docs-images.py
+  ```
+
+  Don't hand-edit the SVGs. They mirror actual output (captured by driving
+  `app.run()` as described above), and the whole point of generating them is
+  that a figure can't quietly stop matching the tool. Every text run carries an
+  explicit `textLength` because GitHub serves them through `<img>` with no
+  webfont available — that is what keeps the columns aligned on whatever
+  monospace face the reader's browser falls back to.
 
 ## Worktrees
 

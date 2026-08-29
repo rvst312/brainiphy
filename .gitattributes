@@ -9,6 +9,7 @@
 *.yml      text
 *.toml     text
 *.plist    text
+*.svg      text
 *.sh       text eol=lf
 LICENSE    text
 
