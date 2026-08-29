@@ -108,6 +108,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- graphify is installed next to `brain`, not with a bare `pip3`. Every screen
+  that offered to install it — step 1 of the checklist, the app, `brain init`'s
+  warning, `brain sync`'s not-found error — said `pip3 install --user
+  graphifyy`, which resolves to whichever `pip3` is first on PATH. On a
+  Homebrew or system Python that is refused outright
+  (`externally-managed-environment`); worse, when it succeeds under a different
+  interpreter than `brain`, the install reports success and a later `brain
+  sync` reports graphify missing on a machine where it is plainly installed.
+  The command now names the interpreter `brain` runs under, and adds `--user`
+  only outside a virtualenv.
+- The installer no longer asks for an API key it does not need. It ended on
+  "no LLM API key in the environment" whenever none was set, omitting the path
+  that actually happens by default: with the `claude` CLI present, `brain sync`
+  indexes through your Claude Code subscription. It now says so, and only asks
+  for a key when no model is reachable at all.
 - The graph's picture is reachable from a brain. `v` opens it from the
   checklist and from the brains list, but neither footer said so; the keys were
   added without their labels. `brain sync` also signs off pointing at
