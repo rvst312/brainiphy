@@ -182,7 +182,12 @@ def working(message: str):
 
 # A Panel costs one border character and one pad character on each side.
 # Public: callers that lay out their own text inside the box need to subtract it.
-FRAME_CHROME = 4
+# What app_panel() costs horizontally: two border columns plus its padding of
+# two on each side. Anything measuring the room left inside the box — framed()
+# narrowing the console, or a caller wrapping its own paragraphs — has to
+# subtract this, or the text wraps once against the terminal and then a second
+# time against the border, which reads as random ragged lines.
+FRAME_CHROME = 6
 
 _capturing = False
 
