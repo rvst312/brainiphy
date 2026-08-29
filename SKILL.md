@@ -10,7 +10,7 @@ description: >
   second brain for a business or client, wants to add a new data source to an
   existing graphify graph, or mentions syncing a CRM/folder/system into their
   graph.
-allowed-tools: Bash(brain:*), Bash(graphify:*), Bash(pip3:*), Bash(python3*:*), Bash(rsync:*), Bash(security:*), Bash(launchctl:*), Bash(which:*)
+allowed-tools: Bash(brain:*), Bash(graphify:*), Bash(pip3:*), Bash(python3*:*), Bash(rsync:*), Bash(security:*), Bash(launchctl:*), Bash(which:*), Bash(head:*)
 ---
 
 # Brainiphy
@@ -19,13 +19,33 @@ Turns the manual process of "install graphify, feed it data, wire it to Claude" 
 
 ## The `brain` CLI
 
-Source lives in `src/brainiphy_cli/` (this directory, global — installed once, used everywhere). If `brain --help` fails, (re)install it:
-```
-/usr/local/opt/python@3.11/bin/python3.11 -m pip install --user -e ~/.claude/skills/brainiphy
-```
-(editable install — edits to this skill's source take effect immediately, no reinstall needed). The `brain` binary lands next to `graphify` (same `--user` bin dir); if it's not found, resolve it once with `python3.11 -c "import site,pathlib; print(pathlib.Path(site.getuserbase())/'bin')"` and add that to PATH, or call it by full path.
+Source lives in `src/brainiphy_cli/` (this directory, global — installed once, used everywhere). However it was
+installed, the install is **editable**: edits to this skill's source take effect immediately, with no reinstall.
 
-**Interpreter note**: this machine has multiple Python 3 installs. graphify/brain were installed under `/usr/local/opt/python@3.11/bin/python3.11` (confirm with `head -1 $(which graphify)`), which may differ from whatever `python3` resolves to on PATH elsewhere. `brain`'s own shebang always uses the right one once installed — this only matters if you're invoking `pip`/`python3` directly.
+**If `brain --help` fails**, re-run the installer. It is idempotent, it repairs a half-broken install, and it is
+the only recovery that is right for both installation routes:
+```
+bash ~/.claude/skills/brainiphy/install.sh
+```
+It puts a virtualenv at `~/.local/share/brainiphy/venv`, installs `brain` and `graphify` into it, and symlinks
+both into `~/.local/bin` — so if the binary exists but the shell can't find it, the fix is `~/.local/bin` on
+PATH, not another install. `--dry-run` reports what it would change without changing anything.
+
+Do **not** reach for `pip3 install --user` to fix this. On a Homebrew or system Python — most Macs now — pip
+refuses outright with `externally-managed-environment`, and where it does work it installs under whichever
+`pip3` happened to be on PATH, which is how `brain` and `graphify` end up under two different interpreters.
+That breaks `brain sync`, which finds graphify by PATH lookup and shells out to it. A developer checkout may
+legitimately have been installed the older way (`<interpreter> -m pip install --user -e <checkout>`); leave it
+alone if it works, and check with `head -1 "$(which brain)"` and `head -1 "$(which graphify)"` that both name
+the same interpreter.
+
+**Interpreter note**: a Mac usually has several Python 3 installs, and the one `brainiphy_cli` lives under is
+generally *not* what a bare `python3` resolves to. `brain`'s own shebang is always right, so this only matters
+when invoking a connector script or `pip`/`python3` yourself. Resolve it from the binary rather than assuming a
+path:
+```
+"$(head -1 "$(which brain)" | cut -c3-)"      # the interpreter brainiphy is installed under
+```
 
 Commands:
 ```
@@ -100,10 +120,19 @@ Run these steps in order when bootstrapping a brain for a new business/folder. R
 to see which are already done rather than checking by hand.
 
 ### 1. Install graphify
+
+Usually already done: the installer puts graphify in the same virtualenv as `brain`, which is the point — they
+have to run under one interpreter, because `brain sync` finds graphify by PATH lookup and shells out to it.
+Check with `graphify --version` and move on.
+
+If it really is missing, re-run the installer (`bash ~/.claude/skills/brainiphy/install.sh`) rather than
+installing graphify on its own. `brain guide` and the app both offer `pip3 install --user graphifyy` here, which
+works on a machine whose `pip3` is the right one and fails with `externally-managed-environment` on a Homebrew
+or system Python; worse, when it does succeed it can land graphify under a different interpreter than `brain`.
+If you or the user take that route anyway, verify afterwards:
 ```
-pip3 install --user graphifyy
+head -1 "$(which brain)"; head -1 "$(which graphify)"    # must name the same interpreter
 ```
-Verify: `graphify --version`.
 
 ### 2. Scaffold the project
 ```
