@@ -9,409 +9,234 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#requirements)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#what-youll-need)
 [![Built on graphify](https://img.shields.io/badge/built%20on-graphify-8A2BE2.svg)](https://pypi.org/project/graphifyy/)
 
 </div>
 
 ---
 
-`brainiphy` packages the whole "install [graphify](https://pypi.org/project/graphifyy/), feed it data, wire it to Claude" workflow into a single CLI (`brain`) and a repeatable playbook. Point it at a business — a folder of documents, a CRM, a Drive, a bespoke API — and it scaffolds the connectors, keeps them synced on a schedule, and exposes the resulting graph to Claude Code and Claude Desktop.
+Everything a business knows is spread across places that don't talk to each other: proposals in a Drive folder,
+contacts and deals in a CRM, last year's numbers in a spreadsheet, meeting notes in somebody's Documents. Ask
+Claude about any of it and it has no idea. The information exists — it just isn't anywhere Claude can reach.
 
-It ships as both a **standalone CLI** and a **[Claude Code Skill](https://docs.claude.com/en/docs/claude-code/skills)**, so an agent can run the whole playbook end to end.
+**brainiphy builds that reachable place.** You point it at your folders and systems; it pulls everything in,
+organizes it into a *knowledge graph* — the people, companies, deals and documents, and how they connect — and
+wires that graph into Claude. From then on Claude can answer questions about your actual business, and the whole
+thing keeps itself current in the background.
 
-## Why
+One "brain" per business or client. One command: `brain`.
 
-Most "second brain" setups die at the integration step: every data source needs its own auth, its own polling, its own normalization, and none of it survives being handed to someone else. `brainiphy` fixes the boring parts:
+It also installs as a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills), so the other way
+to use it is to ask Claude — *"build a brain for this client"* — and let it run the whole thing for you.
 
-- **Source-agnostic connectors.** A connector is just a script that writes normalized Markdown. No plugin registry, no base classes to subclass — adding a new kind of system means writing one `fetch_records()`, not extending a framework.
-- **Idempotent sync.** Records are keyed by a stable slug of their remote ID, so re-running a connector overwrites in place instead of accumulating duplicate nodes in the graph.
-- **Interval-aware scheduling.** Each connector declares how often it should run; `brain sync` only runs what's due and only rebuilds the graph if something actually changed.
-- **Secrets stay in the Keychain.** Credentials are never written to config, never passed as CLI arguments, never routed through an agent's chat context.
+## What it actually does
 
-## Requirements
+<img src="docs/how-it-works.svg" alt="Sources feed connector scripts, which write normalized Markdown into raw/; graphify indexes that into graph.json; Claude Code and Claude Desktop read the graph. brain sync runs the connectors whose interval has elapsed and rebuilds the graph only if one of them ran." width="100%">
 
-- **macOS** — scheduling uses `launchd` and secrets use the system Keychain
-- **Python 3.9+**
-- **[graphify](https://pypi.org/project/graphifyy/)** — `pip3 install --user graphifyy`
+Left to right:
 
-`pyyaml` and `rich` are pulled in automatically by the install below.
+- **Your data** stays exactly where it is. Nothing is moved or uploaded anywhere — you just tell brainiphy
+  where to look.
+- **A connector** per source pulls the records out and writes them all in one plain format. For a folder on your
+  Mac, or a system brainiphy already ships support for, the connector is written *for* you and works
+  immediately. For something unusual, one function is left for you (or for Claude) to fill in.
+- **The graph** is built by [graphify](https://pypi.org/project/graphifyy/). It is what makes the difference
+  between "a folder full of files" and something that can answer *"which clients did we quote in March and
+  never hear back from"*.
+- **Claude** reads it. Claude Code works out of the box; Claude Desktop is one extra flag.
 
-## Installation
+Then it stays true on its own: `brain sync` re-runs only the sources that are due and only rebuilds the graph
+if something actually changed, and `brain schedule` hands that job to macOS so you never think about it again.
+
+## Why bother
+
+- **Add a source once, and it keeps working.** No re-exporting, no "let me just re-upload the folder".
+- **Nothing gets duplicated.** Re-syncing a source updates the records that changed instead of piling up second
+  copies of everything.
+- **Your credentials stay in the macOS Keychain.** They never go into a config file, never into a command line,
+  and never into a chat with an AI.
+- **It's a folder, not an account.** A brain is an ordinary directory you can back up, hand to a colleague, or
+  delete.
+
+## What you'll need
+
+- **A Mac.** Scheduling uses macOS's own `launchd`, and passwords live in the macOS Keychain.
+- **Python 3.9 or newer** — already on your Mac in almost every case.
+- Nothing else. The installer brings in graphify and the two Python libraries it needs.
+
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rvst312/brainiphy/main/install.sh | bash
 ```
 
-That installs into a dedicated virtualenv, symlinks `brain` and `graphify` into `~/.local/bin`, adds that
-directory to your shell profile if it is missing, registers the Claude Code skill, and tells you whether an
-LLM backend is reachable. Then just run:
+That sets everything up in its own isolated folder, so it can't disturb anything else on your Mac, and tells you
+at the end whether it found what it needs. Then run:
 
 ```bash
 brain
 ```
 
-Two things it handles that are easy to get wrong by hand:
-
-- **PEP 668.** `pip install --user` is refused outright on a Homebrew or system Python
-  (`externally-managed-environment`), which is most Macs now. The virtualenv sidesteps it and touches nothing
-  system-wide.
-- **One interpreter for both tools.** `brain` shells out to `graphify`, so they have to run under the same
-  Python. Installing both into one venv makes that structural instead of something to verify and hope for.
-
-<details>
-<summary>Flags, and undoing it</summary>
-
-```
---prefix DIR     where to put the checkout (default: ~/.claude/skills/brainiphy)
---python BIN     interpreter to build the venv with (default: newest python3 >= 3.9)
---no-graphify    skip the graphify engine
---no-path        do not touch the shell profile
---no-skill       do not register it as a Claude Code skill
---uninstall      remove the venv, the symlinks, the PATH block and the skill link
---dry-run        print what would happen, change nothing
-```
-
-Piping a script from the internet into `bash` deserves a look first — read it, or run it with `--dry-run`:
+If you'd rather look before you leap — reasonable, for anything piped into `bash` — download it and have it
+tell you what it *would* do:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rvst312/brainiphy/main/install.sh -o install.sh
-less install.sh
 bash install.sh --dry-run
 ```
 
-The only things it changes outside its own directory are the `~/.local/bin` symlinks, a marked block in your
-shell profile (backed up before it is edited) and the skill symlink. `--uninstall` removes all three.
+Outside its own folder it touches exactly three things: two shortcuts in `~/.local/bin`, a marked block in your
+shell profile (backed up first), and a link that registers it with Claude Code. `bash install.sh --uninstall`
+removes all three.
 
-</details>
+<details>
+<summary>Installer options, and installing from a clone</summary>
 
-### From a checkout
+```
+--prefix DIR     where to put the files (default: ~/.claude/skills/brainiphy)
+--python BIN     which Python to build with (default: the newest python3 >= 3.9)
+--no-graphify    skip the graphify engine
+--no-path        don't touch the shell profile
+--no-skill       don't register it with Claude Code
+--uninstall      remove everything it installed
+--dry-run        print what would happen, change nothing
+```
 
-Working on brainiphy itself, or installing a fork:
+From a clone (for working on brainiphy itself, or installing a fork):
 
 ```bash
 git clone https://github.com/rvst312/brainiphy.git
 bash brainiphy/install.sh --prefix "$PWD/brainiphy"
 ```
 
-An existing checkout is never clobbered: the installer updates it with `git pull --ff-only`, and skips even
-that if it has uncommitted changes. Installation is editable, so edits to `src/brainiphy_cli/*.py` take
-effect immediately.
+An existing clone is never clobbered — it's updated with a fast-forward pull, and skipped entirely if it has
+uncommitted changes.
 
-### Homebrew
+**Homebrew:** not yet; that needs a tagged release. The curl installer is the supported route for now.
 
-Not yet — it needs a tagged release to build a formula against. The curl installer is the supported route
-for now.
+</details>
 
-### As a Claude Code Skill
+## Using it
 
-The installer does this for you: the checkout lands in `~/.claude/skills/brainiphy` (or is symlinked there),
-which is all Claude Code needs to offer the `brainiphy` skill. To skip it, pass `--no-skill`.
+Run `brain` with no arguments. Everything below happens from there.
 
-See [`SKILL.md`](SKILL.md) for the playbook Claude follows.
+### It opens on your brains
 
-## Quick start
+<img src="docs/cli-brains.svg" alt="The brains list: acme at 7/7 with 2431 nodes synced 2h ago, clinica at 4/7 with no graph built yet." width="700">
 
-```bash
-brain new ~/clients/acme
-```
+Every brain on this machine, how far along each one is, how much is in it, and when it last updated. Arrow keys
+to move, `↵` to open one, `n` to start a new one. Brains add themselves to this list as you create them.
 
-That's the whole thing. `brain new` walks the seven steps of building a brain, explains what each one is for,
-and generates everything it can — point it at a folder on your Mac and the connector is written, registered and
-running before you see the next question. Everything it does is optional and re-runnable: run it again on an
-existing brain and it picks up where you left off.
+Nothing here is remembered from last time — each line is read from the brain itself as the screen is drawn, so
+it can't tell you a brain is up to date when it isn't. And `d` removes a brain *from the list only*: the
+folder, the documents and the graph are all left untouched. Deleting a client's data for real is `rm`, on
+purpose.
 
-Lost track of where a brain stands? `brain guide` reports it:
+### Opening one gives you a checklist
 
-```
-$ brain guide ~/clients/acme
+<img src="docs/cli-checklist.svg" alt="The seven-step checklist: four steps ticked off, the cursor on 'Run the first sync', with what that step does and the key to run it." width="700">
 
-4/7 done   ✓ done  ▸ next  ○ pending  – n/a
+Seven steps from empty folder to a brain Claude can query. It's a checklist you work through in place, not a
+wizard that marches you along: it re-checks the folder every time it draws, so it knows what's already done and
+puts you on the step you're actually on. Press `↵` to run the highlighted step.
 
- ✓ 1  Install graphify
- ✓ 2  Scaffold the project
- ✓ 3  Add data sources
- ▸ 4  Implement the custom connectors
-       still template-only: hubspot
-       fill in fetch_records() for anything brain could not generate on its own
-       $EDITOR ~/clients/acme/connectors/hubspot/sync.py
- ✓ 5  Run the first sync
- ○ 6  Connect it to Claude
-       not connected yet
-       brain connect-claude ~/clients/acme --desktop --trust-desktop
- ○ 7  Keep it in sync
-       not scheduled — sync is manual for now
-       brain schedule ~/clients/acme --interval-minutes 15 --load
+You can also jump around. A new brain wants the sequence; a brain you set up six months ago just needs "add one
+more source", and it would be silly to walk you through all seven to get there.
 
-↳ next step:
-    $EDITOR ~/clients/acme/connectors/hubspot/sync.py
-```
+**Step 3 is the interesting one — what feeds this brain:**
 
-Every step is also a command you can run on its own, in any order:
+| Pick this | When your data is | What's left for you to do |
+| --- | --- | --- |
+| **local folder** | a folder on this Mac (or a synced Drive/Dropbox folder) | nothing — it works on the next sync |
+| **preset** | a system brainiphy already knows | your account id and your password |
+| **http api** | any REST API | one small function per kind of record |
+| **url** | a public web page | nothing — but it's a one-off, not a live source |
+| **custom** | a database, an export, anything else | one function that fetches the records |
 
-```bash
-brain init ~/clients/acme                                   # scaffold the project
-brain new-connector ~/clients/acme docs --mirror ~/Dropbox/acme   # ready to run, no code
-brain new-connector ~/clients/acme hubspot --interval-minutes 30  # needs fetch_records()
-brain secret set graphify-acme-hubspot                      # prompts, hidden input
-$EDITOR ~/clients/acme/connectors/hubspot/sync.py           # implement fetch_records()
-brain sync ~/clients/acme --full                            # first build
-brain connect-claude ~/clients/acme --desktop --trust-desktop
-brain schedule ~/clients/acme --interval-minutes 15 --load  # keep it fresh
-```
+Every screen tells you which of these leaves you with something working and which leaves you homework, *before*
+you pick. Add as many as you like.
 
-## Commands
+### Checking where a brain stands
 
-Output is rendered with [Rich](https://github.com/Textualize/rich): colored status icons, tables for `status` and `sync --dry-run`, spinners while connectors run. Color is dropped automatically when output isn't a terminal (and when `NO_COLOR` is set), so piping to a file or a log still gives clean text.
+<img src="docs/cli-status.svg" alt="brain status output: a table of sources with type, readiness, schedule and record count, then the graph size and the setup progress." width="700">
 
-### `brain list`
+`brain status` answers "is this thing actually working": every source, whether it can really run, when it next
+will, how much it has brought in, and how big the graph is. If a source *can't* run, the table says which kind
+of not-ready it is instead of making you open files to find out.
 
-Every brain on this machine: how much of the setup is done, how many sources feed it, how big its graph is and when it last synced. Brains are added here automatically when you create one.
+`brain guide` is the same idea for the setup itself — it prints the seven steps, works out which are done, and
+gives you the exact command for the next one. It only reads, so it's safe to run anywhere, including from
+Claude when it needs to know where a brain stands.
 
-```
-brain    setup  sources           graph      last sync
-acme     7/7    2                 20 nodes   2h ago
-clinica  4/7    2 (1 unfinished)  not built  never
-```
+## Keeping it up to date
 
-### `brain add [folder]` / `brain forget <folder>`
-
-`add` registers a brain that already exists — one made before this list did, or one that arrived with a cloned repo. At a terminal, run it with no argument to browse for the folder.
-
-`forget` removes a brain from the list and **touches nothing inside it**. The connectors, the graph and the mirrored documents all stay exactly where they are, and `brain add` puts the entry back. Deleting a brain for real is `rm`, on purpose.
-
-### `brain view [project]`
-
-Opens graphify's interactive graph in your browser. If the picture is older than the graph it is redrawn first with `graphify cluster-only --no-label`, which costs no tokens — worth knowing because `graphify extract` writes `graph.json` without redrawing `graph.html`, so after a full rebuild the picture would otherwise silently be the previous one.
-
-### `brain new [project]`
-
-The guided setup, and the front door: a checklist of the seven steps that knows which ones this brain has
-already done, opens on the one you're on, and advances as you finish them. Steps stay reachable out of order —
-six months later you just want "add one more source".
-
-First run, in order:
-
-1. **Pick the folder** — browse to it, or make a new one; `↵` takes whichever row is highlighted
-   (*Use this folder* / *Create a new folder here* / a folder to open with `→`)
-2. **It gets prepared right there** — `registry.yaml`, `.gitignore`, `.graphifyignore` — and drops you straight
-   on the next thing
-3. **Add a source**, by type, as many as you like:
-
-   | type | what it is | what's left to do |
-   |---|---|---|
-   | `local folder` | a folder on this Mac, mirrored on every sync | nothing — ready to run |
-   | `preset` | a system brainiphy ships a finished connector for | the account id and the credential |
-   | `http api` | a REST API: retries, pagination and scopes handled | one `collect_*` function per object |
-   | `url` | a public web page | nothing — but it's a one-off, not a connector |
-   | `custom` | a database, a local export, anything else | `fetch_records()` |
-
-   The type you pick is recorded in `registry.yaml` and shown everywhere the connector appears afterwards.
-4. **Finish the connectors** — the ones that need code, opened in `$EDITOR`, or probed against the live API to
-   see what the credential can actually read
-5. **First build** — runs the connectors and indexes everything
-6. **Claude** — Claude Code, and optionally a Desktop MCP server
-7. **Schedule** — the LaunchAgent that keeps it fresh
-
-`t` opens the tools (sync, full rebuild, status, credentials, presets, change project).
-
-Needs a terminal — it asks questions. In a script, use the individual commands.
-
-### `brain guide [project] [--verbose]`
-
-Prints those same seven steps and works out from the project on disk which are already done, what's missing from
-the pending ones, and the exact next command to run. Read-only and safe to run anywhere — including from an
-agent that needs to know where a brain stands without guessing.
-
-`--verbose` also shows the details of the steps already completed.
-
-### `brain init [project]`
-
-Prepares a project to receive connectors.
-
-- Creates `connectors/registry.yaml` and `connectors/state/`
-- Appends generated-output entries to `.gitignore` (`connectors/state/`, `connectors/logs/`, `mirrors/`, `raw/`, `graphify-out/`)
-- Appends `connectors/` to `.graphifyignore`, so graphify doesn't index your connector scripts as source code
-- Warns if `graphify` isn't installed
-
-Run it with no `project` in a terminal and it opens an interactive picker instead of assuming a path:
-
-```
-$ brain init
-
-Where do you want to create the brain?
-────────────────────────────────────────────────────────────
-Pick a number to enter a folder, or type/paste a path.
-
-📂 ~/Documents
- 1) Clients/       2) Estudios/     3) personal/
- 4) Projects/      5) webs-online/
-   n new folder here   a use this one   u up   q cancel
-›
-```
-
-It starts at `~/Documents` and lays the folders out in a grid sized to your terminal. A number enters that folder, `u` goes back up, `n` creates a new folder there, `a` picks the current one, and anything containing `/` (or starting with `~`) is treated as a path you typed or pasted. Free text filters the listing by name, so you don't have to count rows in a long list. Nothing is created on disk until you confirm.
-
-When stdin/stdout isn't a terminal (piped, cron, launchd), `project` still defaults to `.` — the picker never blocks a script. Safe to re-run either way: it never overwrites an existing registry.
-
-> [!IMPORTANT]
-> `.gitignore` and `.graphifyignore` are **not** interchangeable, and they overlap in a way that bites. `.graphifyignore` is the one graphify always obeys — it's what keeps your connector *scripts* from being indexed as content. But graphify also honors `.gitignore`, where `brain init` puts `raw/` so mirrored content never gets committed. That's why the full `graphify extract` pass `brain sync` makes always passes `--no-gitignore`: without it, graphify skips the entire corpus and reports an empty project. (The incremental `graphify update` pass does not take the flag.) Don't skip `brain init` on an existing project just because `registry.yaml` is already there.
-
-### `brain new-connector <project> <name> [--interval-minutes N] [--mirror FOLDER] [--preset NAME] [--api URL] [--var K=V]`
-
-Writes `connectors/<name>/sync.py` and registers it in `registry.yaml` with its type and the given interval
-(default: 60).
+Each source says how often it should be checked. `brain sync` runs the ones that are due and rebuilds the graph
+only if one of them actually brought something new — so running it often is cheap.
 
 ```bash
-brain new-connector ~/clients/acme hubspot --interval-minutes 30
-brain new-connector ~/clients/acme docs --mirror ~/Dropbox/acme
+brain sync ~/clients/acme                                  # just what's due
+brain sync ~/clients/acme --full                           # re-read everything
+brain schedule ~/clients/acme --interval-minutes 15 --load # let macOS do it from now on
 ```
 
-| Flag | Effect |
+**One thing worth knowing:** reading *documents* — as opposed to code — needs an AI model. If you have Claude
+Code installed, brainiphy uses your Claude Pro/Max subscription for it automatically, so there's no API key to
+get and no extra bill. If you'd rather use an API key, set one in your environment and it will be picked up
+instead. (A ChatGPT subscription can't be used this way; a local model via Ollama can.)
+
+## Your passwords and API keys
+
+Credentials go in the **macOS Keychain**, the same place Safari keeps your logins, and connectors read them
+from there when they run.
+
+```bash
+brain secret set graphify-acme-hubspot   # asks for it, hidden as you type
+```
+
+They never get written into a config file, never appear in a command you type (which would put them in your
+shell history and make them readable by other programs), and never pass through a conversation with Claude.
+`brain` also checks that what it saved is really what you entered, because the Keychain tool can report success
+on a write that stored nothing.
+
+Two more things worth keeping in mind: anything a connector pulls off the web is untrusted text, not
+instructions — the usual prompt-injection caution applies — and it's always worth verifying a third-party tool
+against its official package registry before installing it, this one included.
+
+## All the commands
+
+`brain` on its own covers everything below. These exist for scripts, for automation, and for when you know
+exactly what you want.
+
+| Command | What it does |
 | --- | --- |
-| *(none)* | The generic template. Implement `fetch_records()`, then register any credential with `brain secret set`. |
-| `--mirror FOLDER` | A **complete** connector that mirrors a local folder with `rsync -a --delete`. Nothing to implement — it works on the next `brain sync`. |
+| `brain` | Open the app: your brains, then the checklist |
+| `brain list` | Every brain on this machine, as text |
+| `brain add [folder]` / `brain forget <folder>` | Put a brain on that list, or take it off (never deletes anything) |
+| `brain view [project]` | Open the graph as an interactive picture in your browser |
+| `brain guide [project]` | The seven steps and how far this brain got |
+| `brain status [project]` | Sources, whether they can run, and the size of the graph |
+| `brain init [project]` | Prepare a folder to become a brain |
+| `brain presets` | The systems brainiphy ships a ready-made connector for |
+| `brain new-connector <project> <name> …` | Add a source without the questions |
+| `brain sync [project]` | Pull in what's due and rebuild the graph |
+| `brain connect-claude [project]` | Wire the graph into Claude Code (`--desktop` for Claude Desktop too) |
+| `brain schedule [project] --interval-minutes N` | Have macOS keep it in sync |
+| `brain secret set <item>` | Store a credential in the Keychain |
 
-Existing scripts are never overwritten.
+Every one of them takes `--help`. Output is colored and tabulated when you're at a terminal and plain when
+you're not, so piping any of it into a file or a log gives you clean text.
 
-Why mirror rather than symlink: graphify doesn't follow symlinks, so a linked folder is simply never indexed. `--delete` keeps it idempotent — files removed at the source disappear from the brain instead of lingering as stale nodes.
+## Going further
 
-### `brain sync [project] [--dry-run] [--full] [--backend NAME]`
+- **[Reference](docs/reference.md)** — every flag, the layout of a brain on disk, and how to write a connector
+  for a system brainiphy doesn't know yet.
+- **[SKILL.md](SKILL.md)** — brainiphy also installs as a [Claude Code
+  skill](https://docs.claude.com/en/docs/claude-code/skills), so you can ask Claude to build a brain for a
+  client and it runs this same playbook for you. This is the playbook it follows.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** and **[CLAUDE.md](CLAUDE.md)** — for working on brainiphy itself.
 
-Runs every connector whose interval has elapsed (tracked in `connectors/state/<name>.json`), then rebuilds the graph — but only if at least one connector actually ran (or `--full` was passed).
-
-| Flag | Effect |
-| --- | --- |
-| `--dry-run` | Report which connectors are due and whether their scripts exist. Runs nothing, touches nothing. |
-| `--full` | Force a full re-index, and rebuild even if nothing was due. Implied on the first build. |
-
-Prints `ran=[...] skipped=[...] errors=[...] graph_rebuilt=<bool>` and exits non-zero if any connector failed. Safe to run against an empty registry.
-
-**Two rebuild commands, and picking the wrong one silently does nothing** — `brain sync` picks for you:
-
-| | indexes | needs an LLM | when brain uses it |
-| --- | --- | --- | --- |
-| `graphify extract` | documents **and** code | yes, for documents | first build, and every `--full` |
-| `graphify update` | code only (local AST) | no | every later manual run |
-
-A brain made of documents therefore needs a model to index it — **but not an API key**. `brain sync` chooses the backend in this order:
-
-1. `--backend <name>`, if you pass one.
-2. Whichever API key is in the environment (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, …).
-3. Your **Claude Code subscription**, when neither is set and the `claude` CLI is installed. graphify shells out to `claude -p`, so the indexing is billed to your Pro/Max plan instead of pay-as-you-go API credit.
-
-```bash
-brain sync ~/clients/acme --full --backend claude-cli   # force the subscription
-export GRAPHIFY_CLAUDE_CLI_MODEL=haiku                  # faster + lighter than the Opus default
-```
-
-The subscription backend runs one chunk at a time, so a large first sync is slower than an API key would be. A **ChatGPT subscription cannot be used this way** — graphify has no Codex/ChatGPT-CLI backend, and its `openai` backend wants a real key. The other no-cost routes are a local model (`--backend ollama`) or running `/graphify` inside a Claude session so the agent extracts the graph itself.
-
-### `brain connect-claude [project] [--desktop] [--trust-desktop]`
-
-Wires the project into Claude.
-
-| Flag | Effect |
-| --- | --- |
-| *(none)* | Runs `graphify claude install` — connects Claude Code via `CLAUDE.md` + hooks. The low-risk default. |
-| `--desktop` | Also registers a `graphify-mcp` MCP server in `claude_desktop_config.json`, pointed at the project's `graph.json`. |
-| `--trust-desktop` | Appends the project to `localAgentModeTrustedFolders`. **Additive** — existing entries are never replaced. |
-
-`claude_desktop_config.json` is backed up (`.bak-<timestamp>`) before any edit. Restart Claude Desktop to pick up changes.
-
-### `brain schedule [project] --interval-minutes N [--load]`
-
-Generates a LaunchAgent at `~/Library/LaunchAgents/com.graphify.sync.<slug>.plist` that runs `brain sync` on an interval. Logs land in `connectors/logs/`.
-
-Without `--load` it only writes the plist and prints the `launchctl bootstrap` command; with `--load` it activates immediately. Refuses to run if the project has no registered connectors.
-
-### `brain secret set <item>` / `brain secret get <item>`
-
-Connector credentials, stored in the macOS Keychain.
-
-```bash
-brain secret set graphify-acme-hubspot   # prompts with hidden input
-brain secret get graphify-acme-hubspot   # debugging only
-```
-
-Connectors read credentials at runtime via `keychain.get_secret()`. Secrets never reach `registry.yaml`, CLI arguments, or shell history.
-
-### `brain status [project]`
-
-Shows registered connectors (interval, due/up-to-date, whether the script exists) and the current graph size in nodes and edges.
-
-## Writing a connector
-
-`brain new-connector` generates a script that already satisfies the contract — in most cases you only fill in `fetch_records()`:
-
-```python
-SOURCE_SYSTEM = "hubspot"
-
-def fetch_records() -> list[dict]:
-    token = get_secret("graphify-acme-hubspot")
-    req = urllib.request.Request(
-        "https://api.example.com/v3/records",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.load(resp)
-    return [
-        {"id": r["id"], "title": r["name"], "body": r["notes"]}
-        for r in data["results"]
-    ]
-```
-
-Each record needs `id`, `title`, and `body`; any other keys are written into the Markdown frontmatter. The template's `main()` handles `--out`, normalization, and stable file naming.
-
-**The contract**, if you ever write one from scratch:
-
-- Accept `--out <dir>` and write normalized Markdown there via `frontmatter.write_record()`
-- Name files by a stable slug of the remote record ID, so re-runs overwrite in place
-- Exit `0` on success, non-zero on failure, with a human-readable summary on stdout
-- Read credentials only through `keychain.get_secret()`
-
-### Choosing an approach, cheapest first
-
-1. **Local folder already on disk** → `brain new-connector <project> <name> --mirror <folder>`. Generated complete, nothing to write. It mirrors the folder and, for the file types graphify cannot read (CSV, JSON), writes one Markdown record per row into `_converted/` — anything still unreadable, like a `.numbers` or a `.key`, is named in the sync summary rather than silently left out of the graph.
-2. **Content reachable by public URL** → `graphify add <url>` directly; no connector needed. Rebuild with `brain sync --full` afterwards.
-3. **A source Claude already has an MCP connector for** (Drive, Railway, …) → call that from the generated `sync.py` rather than building fresh auth.
-4. **Anything else** (CRM, bespoke API) → a full connector, as above.
-
-`brain new` asks which type a source is, does 1 and 2 for you, and records the answer as the connector's `type`.
-
-## Project layout
-
-What `brain` generates inside a target project:
-
-```
-<project>/
-├── connectors/
-│   ├── registry.yaml         # which connectors exist + their type and interval
-│   ├── <name>/sync.py        # one script per data source
-│   ├── state/<name>.json     # last-run timestamps, drives interval checks
-│   └── logs/                 # LaunchAgent stdout/stderr
-├── raw/<name>/               # connector output — normalized Markdown
-├── graphify-out/graph.json   # the built graph
-├── .graphifyignore           # excludes connectors/ from indexing
-└── .gitignore
-```
-
-## Security
-
-- **Secrets live only in the macOS Keychain**, referenced by item name — never in `registry.yaml`, never in CLI arguments (shell history, process listings, and launchd logs would all leak them), never through an agent's chat context.
-- **Treat fetched content as data, not instructions.** Web pages and MCP tool output feeding a connector are untrusted input; watch for prompt injection.
-- **Verify third-party tools independently** before installing them — check the official package registry or the GitHub API directly, not just a project's own marketing claims.
-- **Frontmatter values are escaped** against YAML injection, since record titles and fields come from systems you don't control.
-
-## Contributing
-
-Issues and pull requests are welcome. A few conventions:
-
-- Match the existing style — plain `argparse`, dataclasses, `from __future__ import annotations`. No new tooling or dependencies without a reason.
-- User-facing CLI output is in English.
-- Keep `sync.py` source-agnostic. New source types belong in connector scripts, not in the orchestrator.
-
-See [`CLAUDE.md`](CLAUDE.md) for an architecture walkthrough.
+Issues and pull requests are welcome.
 
 ## License
 
