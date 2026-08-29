@@ -364,6 +364,36 @@ def _timestamp() -> str:
 
 # ------------------------------------------------------------- scheduling ---
 
+# launchd's own default, and all a job gets when the plist says nothing.
+_LAUNCHD_DEFAULT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def _agent_path() -> str:
+    """PATH to bake into the LaunchAgent.
+
+    The tools a sync reaches for — `brain`, `graphify`, and `claude` when the
+    graph is indexed through the Claude Code subscription — normally live in a
+    user bin dir that only the login shell puts on PATH. A scheduled run has no
+    login shell, so their directories are resolved here, while `brain schedule`
+    still has the user's environment, and pinned into the plist.
+
+    Kept unresolved on purpose: `claude` is typically a symlink into a
+    versioned install dir (~/.local/share/claude/versions/2.1.241), and that
+    directory holds version-named files, not a binary called `claude`. Pinning
+    the resolved parent would write a PATH entry that provides nothing and goes
+    stale on the next Claude Code update; the symlink's own directory does not.
+    """
+    dirs: list[str] = []
+    for exe in ("brain", "graphify", "claude"):
+        found = shutil.which(exe)
+        if not found:
+            continue
+        parent = str(Path(found).parent)
+        if parent not in dirs:
+            dirs.append(parent)
+    return ":".join([*dirs, _LAUNCHD_DEFAULT_PATH])
+
+
 def schedule(
     project: Path,
     *,
@@ -390,6 +420,7 @@ def schedule(
         plist_text.replace("__PROJECT_SLUG__", name)
         .replace("__BRAIN_EXE__", brain_exe)
         .replace("__PROJECT_PATH__", str(project))
+        .replace("__PATH__", _agent_path())
         .replace("__INTERVAL_SECONDS__", str(int(interval_minutes * 60)))
         .replace("__LOG_DIR__", str(log_dir))
     )

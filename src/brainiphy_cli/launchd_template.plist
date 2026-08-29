@@ -17,6 +17,18 @@
         <string>__PROJECT_PATH__</string>
     </array>
 
+    <!--
+      launchd hands a job a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin), not the
+      login shell's. Without this the scheduled sync cannot find `claude`, and
+      a brain that indexes through the Claude Code subscription silently loses
+      its LLM backend the moment it stops being run by hand.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__PATH__</string>
+    </dict>
+
     <key>StartInterval</key>
     <integer>__INTERVAL_SECONDS__</integer>
 
