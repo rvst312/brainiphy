@@ -108,6 +108,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A mirrored folder now brings in the files graphify cannot read. graphify
+  indexes Markdown, text, PDF, Office documents and images, and silently skips
+  everything else — so a folder of CSV or JSON exports was copied into the
+  brain and ignored, leaving `brain sync` reporting success over a nearly empty
+  graph. Tables and JSON become the same Markdown records every other connector
+  writes, one per row, and anything still unreadable is named in the summary
+  instead of disappearing. On a six-file test folder: 2 files indexed before, 7
+  after.
 - Paragraphs inside the app's box wrapped two columns too wide and broke into
   ragged lines. `FRAME_CHROME` counted the border but not the panel's padding.
 - A scheduled sync now runs `brain sync --full`. Without it the LaunchAgent

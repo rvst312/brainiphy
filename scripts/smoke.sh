@@ -13,6 +13,10 @@
 set -euo pipefail
 
 brain=${BRAIN:-brain}
+# A generated connector imports brainiphy_cli, so it has to run under the
+# interpreter `brain` itself was installed with — `python3` on this machine may
+# well be a different one, and the script would die on its own import.
+brain_python=$(head -1 "$(command -v "$brain")" | sed 's|^#!||')
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -24,6 +28,10 @@ source_dir="$work/source"
 project="$work/project"
 mkdir -p "$source_dir"
 printf '# Note\n\nA document the brain should end up mirroring.\n' > "$source_dir/note.md"
+# A real folder is not all Markdown. graphify reads neither of these, so the
+# connector has to turn one into records and name the other.
+printf 'Cliente,Importe\nacme,1200\nmoda lunar,890\n' > "$source_dir/facturacion.csv"
+printf 'not something graphify can read\n' > "$source_dir/hoja.numbers"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
@@ -41,8 +49,26 @@ test -x "$project/connectors/docs/sync.py" || { echo "connector script missing o
 grep -q 'name: docs' "$project/connectors/registry.yaml" || { echo "connector not registered" >&2; exit 1; }
 
 step "generated connector runs and mirrors the folder"
-python3 "$project/connectors/docs/sync.py" --out "$project/raw/docs"
+"$brain_python" "$project/connectors/docs/sync.py" --out "$project/raw/docs"
 test -f "$project/raw/docs/note.md" || { echo "mirror did not copy the source document" >&2; exit 1; }
+
+step "the mirror converts what graphify cannot read"
+# A CSV copied verbatim is a file sitting in the brain that will never be in
+# its graph, and nothing else would tell you that.
+test -d "$project/raw/docs/_converted/facturacion" \
+  || { echo "the CSV was not converted into records" >&2; exit 1; }
+test "$(find "$project/raw/docs/_converted/facturacion" -name '*.md' | wc -l)" -eq 2 \
+  || { echo "expected one record per CSV row" >&2; exit 1; }
+grep -q 'cliente: "acme"' "$project"/raw/docs/_converted/facturacion/*.md \
+  || { echo "the CSV columns did not become frontmatter" >&2; exit 1; }
+
+# Re-running must not duplicate them, and rsync --delete must not remove them:
+# they have no counterpart in the source folder, which is what --delete eats.
+second_run=$("$brain_python" "$project/connectors/docs/sync.py" --out "$project/raw/docs")
+test "$(find "$project/raw/docs/_converted/facturacion" -name '*.md' | wc -l)" -eq 2 \
+  || { echo "a second run changed the converted records" >&2; exit 1; }
+case "$second_run" in *hoja.numbers*) ;; *)
+  echo "a file that cannot be indexed was not reported" >&2; exit 1;; esac
 
 step "brain new-connector (generic template)"
 "$brain" new-connector "$project" crm

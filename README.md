@@ -372,7 +372,7 @@ Each record needs `id`, `title`, and `body`; any other keys are written into the
 
 ### Choosing an approach, cheapest first
 
-1. **Local folder already on disk** → `brain new-connector <project> <name> --mirror <folder>`. Generated complete, nothing to write.
+1. **Local folder already on disk** → `brain new-connector <project> <name> --mirror <folder>`. Generated complete, nothing to write. It mirrors the folder and, for the file types graphify cannot read (CSV, JSON), writes one Markdown record per row into `_converted/` — anything still unreadable, like a `.numbers` or a `.key`, is named in the sync summary rather than silently left out of the graph.
 2. **Content reachable by public URL** → `graphify add <url>` directly; no connector needed. Rebuild with `brain sync --full` afterwards.
 3. **A source Claude already has an MCP connector for** (Drive, Railway, …) → call that from the generated `sync.py` rather than building fresh auth.
 4. **Anything else** (CRM, bespoke API) → a full connector, as above.
