@@ -24,7 +24,7 @@ jobs:
           # macOS is the real target (Keychain, launchd); Linux catches
           # accidental platform assumptions in the parts that are portable.
           - {os: macos-latest, python: "3.11"}
-          - {os: ubuntu-latest, python: "3.9"}   # the floor in pyproject.toml
+          - {os: ubuntu-24.04, python: "3.9"}    # the floor in pyproject.toml; ubuntu-latest (26.04) no longer ships 3.9
           - {os: ubuntu-latest, python: "3.13"}
     steps:
       - uses: actions/checkout@v4
