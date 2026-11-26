@@ -179,8 +179,8 @@ def _store_secret(project: Path, name: str, label: str) -> None:
     Always the same item name the connector reads and `brain secret set`
     writes, so the three never drift apart.
     """
-    item = project_mod.secret_item_name(project, name)
-    _why(f"It will be stored in the macOS Keychain as '{item}' — never in a file, never in chat.")
+    item = project_mod.connector_secret_item(project, name)
+    _why(f"It will be stored in {keychain.store_label()} as '{item}' — never in the project, never in chat.")
     if not _confirm(f"Enter the {label} now?", default=True):
         ui.hint("store it later with:", f"brain secret set {item}")
         return
@@ -195,7 +195,7 @@ def _store_secret(project: Path, name: str, label: str) -> None:
             ui.error(str(exc))
             ui.hint("try again with:", f"brain secret set {item}")
             return
-        ui.ok("stored in the Keychain:", item)
+        ui.ok(f"stored in {keychain.store_label()}:", item)
     else:
         ui.warn("empty value, skipped")
         ui.hint("store it later with:", f"brain secret set {item}")

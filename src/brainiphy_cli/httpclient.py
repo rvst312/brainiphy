@@ -21,6 +21,7 @@ problems, and getting any of them wrong is silent rather than loud:
 from __future__ import annotations
 
 import json
+from http.client import IncompleteRead
 import time
 import urllib.error
 import urllib.parse
@@ -45,6 +46,26 @@ class NoScope(Exception):
     An expected outcome, not a failure: tokens are commonly issued with a
     subset of scopes. Catch it per resource and carry on.
     """
+
+
+class IncompleteFetch(RuntimeError):
+    """A partial response must never be mistaken for a complete snapshot."""
+
+
+def _origin(url: str) -> tuple:
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme not in ("http", "https") or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None):
+        raise ValueError("API URLs must be HTTP(S) URLs without embedded credentials")
+    port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origin(req.full_url) != _origin(newurl):
+            raise ValueError("refusing an authenticated redirect to a different origin")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class HttpClient:
@@ -79,6 +100,8 @@ class HttpClient:
         if not (secret_item or token):
             raise ValueError("HttpClient needs either secret_item= or token=")
         self.base_url = base_url.rstrip("/")
+        self.origin = _origin(self.base_url)
+        self._opener = urllib.request.build_opener(_SameOriginRedirect())
         self.secret_item = secret_item
         self._token = token
         self.auth_header = auth_header
@@ -118,11 +141,13 @@ class HttpClient:
         out.
         """
         last_error: Exception | None = None
+        if _origin(url) != self.origin:
+            raise ValueError("refusing to send API credentials to a different origin")
 
         for attempt in range(1, self.retries + 1):
             req = urllib.request.Request(url, headers=self.headers())
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with self._opener.open(req, timeout=self.timeout) as resp:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", "replace")[:300]
@@ -133,7 +158,7 @@ class HttpClient:
                     time.sleep(self.backoff_seconds * attempt)
                     continue
                 raise RuntimeError(f"HTTP {exc.code} on {url}: {body}") from exc
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            except (urllib.error.URLError, TimeoutError, OSError, IncompleteRead) as exc:
                 # Flaky DNS, TLS handshake timeout, dropped read. Unattended
                 # runs make these routine rather than exceptional.
                 last_error = exc
@@ -150,6 +175,19 @@ class HttpClient:
             if clean:
                 url += "?" + urllib.parse.urlencode(clean)
         return self.request(url)
+
+    def get_list(self, path: str, key: str, params: dict | None = None) -> list:
+        """Read a non-paginated collection without treating bad data as empty."""
+        data = self.get(path, params)
+        if not isinstance(data, dict) or not isinstance(data.get(key), list):
+            raise IncompleteFetch(f"response is missing the {key!r} list")
+        return data[key]
+
+    def get_object(self, path: str, key: str, params: dict | None = None) -> dict:
+        data = self.get(path, params)
+        if not isinstance(data, dict) or not isinstance(data.get(key), dict):
+            raise IncompleteFetch(f"response is missing the {key!r} object")
+        return data[key]
 
     def paginate(
         self,
@@ -170,7 +208,8 @@ class HttpClient:
         identically to the first page and the hundredth — which is exactly the
         bug this method exists to make impossible.
 
-        Stops at max_pages and returns what it has; the caller reports the cap.
+        A missing list or an unfinished walk at max_pages raises IncompleteFetch;
+        callers must keep their previous snapshot in either case.
         """
         params = dict(params)
         params.setdefault("limit", self.page_limit)
@@ -179,27 +218,32 @@ class HttpClient:
 
         for _ in range(self.max_pages):
             data = self.request(next_url) if next_url else self.get(path, params)
-            batch = data.get(key) or []
+            if not isinstance(data, dict) or not isinstance(data.get(key), list):
+                raise IncompleteFetch(f"response is missing the {key!r} list")
+            batch = data[key]
             items.extend(batch)
 
             meta = data.get(meta_key) or {}
             next_url = meta.get(next_url_field)
             if next_url:
+                next_url = urllib.parse.urljoin(self.base_url + path, next_url)
                 continue
 
             cursor = meta.get(cursor_field)
-            # A short page means the end, whatever the cursor says.
-            if cursor and len(batch) >= params["limit"]:
+            # A cursor is explicit evidence that the snapshot is unfinished.
+            if cursor:
                 for name in cursor_params:
                     if name in meta:
                         params[name] = meta[name]
                 params[cursor_field] = cursor
                 continue
             break
+        else:
+            raise IncompleteFetch(f"pagination reached the {self.max_pages} page limit; previous records preserved")
 
         return items
 
     def hit_page_cap(self, items: list) -> bool:
-        """True when a paginate() result may have been truncated by max_pages —
-        worth saying out loud rather than silently under-reporting."""
+        """Legacy size heuristic. paginate() now raises on an unfinished walk;
+        retained for connectors that used this helper with their own paging."""
         return len(items) >= self.max_pages * self.page_limit

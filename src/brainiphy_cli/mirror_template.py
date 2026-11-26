@@ -31,9 +31,11 @@ import csv
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-from brainiphy_cli.frontmatter import write_record
+from brainiphy_cli.frontmatter import write_record, preserve_capture_time
+from brainiphy_cli.storage import atomic_write, contained_path
 
 SOURCE_SYSTEM = 'mirror'
 MIRROR_SOURCE = None
@@ -143,10 +145,7 @@ def records_from_table(path: Path) -> tuple[list[dict], bool]:
 
 def records_from_json(path: Path) -> tuple[list[dict], bool]:
     """A list of objects becomes one record each; anything else, one record."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (json.JSONDecodeError, OSError):
-        return [], False
+    data = json.loads(path.read_text(encoding="utf-8", errors="strict"))
 
     if isinstance(data, list):
         rows = [item for item in data if isinstance(item, dict)]
@@ -202,6 +201,13 @@ def main() -> int:
         print(f"[{SOURCE_SYSTEM}] source folder is gone: {source}", file=sys.stderr)
         return 1
 
+    source = source.resolve()
+    output = args.out.resolve()
+    if source == output or source in output.parents or output in source.parents:
+        print(f"[{SOURCE_SYSTEM}] source and output must not overlap", file=sys.stderr)
+        return 1
+    args.out = output
+
     args.out.mkdir(parents=True, exist_ok=True)
     derived = args.out / DERIVED_DIRNAME
 
@@ -218,32 +224,61 @@ def main() -> int:
         print(f"[{SOURCE_SYSTEM}] rsync failed (exit {result.returncode})", file=sys.stderr)
         return result.returncode
 
-    # Rebuilt from scratch every run: a row deleted at the source has to stop
-    # being a node, and there is no rsync --delete watching this folder.
-    if derived.exists():
-        for path in sorted(derived.rglob("*"), reverse=True):
-            path.unlink() if path.is_file() else path.rmdir()
-
     native = converted = written = 0
     capped_files: list[str] = []
     unreadable: list[str] = []
+    failures: list[str] = []
 
-    for path in sorted(args.out.rglob("*")):
-        if not path.is_file() or derived in path.parents:
-            continue
-        relative = path.relative_to(args.out)
-        suffix = path.suffix.lower()
-        if suffix in NATIVE_EXTENSIONS:
-            native += 1
-        elif suffix in TABLE_EXTENSIONS or suffix in JSON_EXTENSIONS:
-            count, capped = convert(path, derived, relative)
-            if count:
-                converted += 1
-                written += count
-            if capped:
-                capped_files.append(str(relative))
-        elif not path.name.startswith("."):
-            unreadable.append(str(relative))
+    # Build conversions away from the live corpus. A broken export must not
+    # erase the previous converted records before anyone learns it is broken.
+    with tempfile.TemporaryDirectory(prefix="brainiphy-mirror-") as temporary:
+        stage = Path(temporary)
+        for path in sorted(args.out.rglob("*")):
+            if not path.is_file() or derived in path.parents:
+                continue
+            relative = path.relative_to(args.out)
+            suffix = path.suffix.lower()
+            if suffix in NATIVE_EXTENSIONS:
+                native += 1
+            elif suffix in TABLE_EXTENSIONS or suffix in JSON_EXTENSIONS:
+                try:
+                    count, capped = convert(path, stage, relative)
+                except (OSError, ValueError, csv.Error) as exc:
+                    failures.append(f"{relative}: {type(exc).__name__}: {exc}")
+                    continue
+                if count:
+                    converted += 1
+                    written += count
+                if capped:
+                    capped_files.append(str(relative))
+            elif not path.name.startswith("."):
+                unreadable.append(str(relative))
+
+        if failures:
+            for failure in failures:
+                print(f"[{SOURCE_SYSTEM}] {failure}", file=sys.stderr)
+            print(f"[{SOURCE_SYSTEM}] conversion failed; previous converted records preserved", file=sys.stderr)
+            return 1
+
+        current: set[Path] = set()
+        for path in sorted(stage.rglob("*.md")):
+            relative = path.relative_to(stage)
+            destination = contained_path(args.out, DERIVED_DIRNAME, str(relative))
+            current.add(destination)
+            content = path.read_text(encoding="utf-8")
+            if destination.exists():
+                previous = destination.read_text(encoding="utf-8")
+                content = preserve_capture_time(content, previous)
+                if content == previous:
+                    continue
+            atomic_write(destination, content)
+        if derived.exists():
+            for path in sorted(derived.rglob("*"), reverse=True):
+                contained_path(args.out, str(path.relative_to(args.out)))
+                if path.is_file() and path not in current:
+                    path.unlink()
+                elif path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
 
     print(f"[{SOURCE_SYSTEM}] mirrored {source} -> {args.out}")
     print(f"[{SOURCE_SYSTEM}] {native} file(s) graphify reads directly")

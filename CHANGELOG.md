@@ -6,7 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Linux servers.** A brain can now live on a Linux machine with no desktop
+  session. Where there is no macOS Keychain, credentials are one owner-only
+  file per item in `~/.config/brainiphy/secrets` (or `BRAINIPHY_SECRETS_DIR`,
+  which is how you point them at an encrypted volume), with the same rules as
+  before: never in argv, never in the project, read back after writing.
+  `brain schedule` installs a systemd service and timer instead of a
+  LaunchAgent; run as root it installs system units that run the sync as the
+  owner of the brain's folder, never as root. A brain whose volume is not
+  mounted is skipped rather than reported as failed. macOS behaves exactly as
+  before. `brain connect-claude --desktop` remains macOS-only; on a server,
+  serve the graph with `graphify-mcp --transport http`.
 
 ## [0.2.0] - 2026-08-29
 

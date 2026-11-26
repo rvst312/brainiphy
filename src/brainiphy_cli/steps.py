@@ -17,9 +17,6 @@ subprocesses (beyond resolving an executable on PATH).
 from __future__ import annotations
 
 import json
-import re
-import shutil
-import site
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +24,7 @@ import yaml
 from rich.text import Text
 
 from brainiphy_cli import project as project_mod, ui
+from brainiphy_cli.storage import contained_path, validate_name
 
 DONE = "done"
 TODO = "todo"
@@ -89,26 +87,26 @@ class BrainState:
 
 
 def _find_exe(name: str) -> str | None:
-    on_path = shutil.which(name)
-    if on_path:
-        return on_path
-    candidate = Path(site.getuserbase()) / "bin" / name
-    return str(candidate) if candidate.exists() else None
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "project"
+    try:
+        return project_mod.find_exe(name)
+    except FileNotFoundError:
+        return None
 
 
 def _registry_entries(project: Path) -> list[dict]:
-    path = project / "connectors" / "registry.yaml"
-    if not path.exists():
-        return []
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
+        entries = project_mod.load_registry_entries(project)
+    except (yaml.YAMLError, OSError, ValueError):
         return []
-    return data.get("connectors") or []
+    valid = []
+    for entry in entries:
+        try:
+            name = validate_name(entry.get("name") if isinstance(entry, dict) else None)
+            contained_path(project, "connectors", name, "sync.py")
+        except ValueError:
+            continue
+        valid.append(entry)
+    return valid
 
 
 def _graph_size(project: Path) -> tuple[int, int] | None:
@@ -120,7 +118,12 @@ def _graph_size(project: Path) -> tuple[int, int] | None:
         data = json.loads(graph_json.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    return len(data.get("nodes", [])), len(data.get("links", data.get("edges", [])))
+    if not isinstance(data, dict):
+        return None
+    nodes, edges = data.get("nodes"), data.get("links", data.get("edges", []))
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return None
+    return len(nodes), len(edges)
 
 
 def _claude_code_wired(project: Path) -> bool:
@@ -136,8 +139,7 @@ def _claude_code_wired(project: Path) -> bool:
 
 
 def _launch_agent(project: Path) -> Path | None:
-    plist = Path.home() / "Library/LaunchAgents" / f"com.graphify.sync.{_slug(project.name)}.plist"
-    return plist if plist.exists() else None
+    return project_mod.launch_agent(project)
 
 
 def unimplemented_connectors(project: Path) -> list[str]:
@@ -198,7 +200,7 @@ def inspect(project: Path) -> BrainState:
     # 2 -------------------------------------------------------------------
     registry_exists = (project / "connectors" / "registry.yaml").exists()
     ignore_path = project / ".graphifyignore"
-    ignore_ok = ignore_path.exists() and "connectors/" in ignore_path.read_text(encoding="utf-8", errors="ignore")
+    ignore_ok = ignore_path.exists() and "connectors/" in {line.strip() for line in ignore_path.read_text(encoding="utf-8", errors="ignore").splitlines()}
     scaffolded = registry_exists and ignore_ok
     steps.append(
         Step(
@@ -219,7 +221,8 @@ def inspect(project: Path) -> BrainState:
     # 3 -------------------------------------------------------------------
     # A brain fed only by `graphify add <url>` has no connectors at all, so a
     # non-empty graph counts as having sources just as much as a registry does.
-    has_sources = bool(entries) or bool(graph and graph[0])
+    has_raw = any(p.is_file() and p.suffix.lower() == ".md" for p in (project / "raw").rglob("*"))
+    has_sources = bool(entries) or has_raw or bool(graph and graph[0])
     steps.append(
         Step(
             3,
@@ -232,7 +235,7 @@ def inspect(project: Path) -> BrainState:
                     f"{e.get('name', '?')} ({project_mod.type_label(e, project)})" for e in entries
                 )
                 if entries
-                else ("no connectors, but the graph already has content" if has_sources else "no sources yet")
+                else ("content in raw/ or the graph, without connectors" if has_sources else "no sources yet")
             ),
             command=None if has_sources else f"brain new {short}",
         )
@@ -297,9 +300,9 @@ def inspect(project: Path) -> BrainState:
             7,
             "schedule",
             "Keep it in sync",
-            "a LaunchAgent that re-runs brain sync on its own",
+            "a background job that re-runs brain sync on its own",
             state=DONE if plist else TODO,
-            detail=str(plist) if plist else "not scheduled — sync is manual for now",
+            detail=f"configured at {plist}; live activation not checked" if plist else "not scheduled — sync is manual for now",
             command=None if plist else f"brain schedule {short} --interval-minutes 15 --load",
         )
     )

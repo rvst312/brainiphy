@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#what-youll-need)
+[![Platform: macOS, Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#what-youll-need)
 [![Built on graphify](https://img.shields.io/badge/built%20on-graphify-8A2BE2.svg)](https://pypi.org/project/graphifyy/)
 
 </div>
@@ -61,7 +61,9 @@ if something actually changed, and `brain schedule` hands that job to macOS so y
 
 ## What you'll need
 
-- **A Mac.** Scheduling uses macOS's own `launchd`, and passwords live in the macOS Keychain.
+- **A Mac, or a Linux server.** On macOS, scheduling uses `launchd` and passwords live in the Keychain. On Linux,
+  scheduling uses a systemd timer and passwords are owner-only files (point `BRAINIPHY_SECRETS_DIR` at an
+  encrypted volume). The Claude Desktop wiring is macOS-only.
 - **Python 3.9 or newer** — already on your Mac in almost every case.
 - Nothing else. The installer brings in graphify and the two Python libraries it needs.
 

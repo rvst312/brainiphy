@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Credential storage for brainiphy connectors, backed by the macOS Keychain.
+"""Credential storage for brainiphy connectors: the macOS Keychain, or on Linux
+a folder of owner-only files (see "file store" below).
 
 Tokens never touch disk in plain text and never pass through a chat/agent
 context. The user (a human) registers each credential once, out of band:
@@ -19,7 +20,12 @@ never call set_secret(): a connector reads a credential, it does not store one.
 from __future__ import annotations
 
 import getpass
+import os
+import re
 import subprocess
+from pathlib import Path
+
+from brainiphy_cli import hostos
 
 
 class SecretNotFoundError(RuntimeError):
@@ -35,6 +41,77 @@ class SecretWriteError(RuntimeError):
     """
 
 
+# ------------------------------------------------------------ file store ---
+#
+# Linux has no Keychain, and a server has no desktop keyring either (no
+# session, no D-Bus). There a credential is one file per item, readable only by
+# its owner, in a directory readable only by its owner. Put that directory on
+# an encrypted volume and the guarantee is the same as on macOS: nothing in
+# plain text on a disk somebody else can read, nothing in argv or a log.
+#
+# BRAINIPHY_SECRETS_DIR selects the directory (and opts a Mac into the file
+# store too, which is what a brain on an encrypted external disk wants).
+
+def secrets_dir():
+    """Where file-backed credentials live, or None when the Keychain is used."""
+    explicit = os.environ.get("BRAINIPHY_SECRETS_DIR", "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    if hostos.is_macos():
+        return None
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "brainiphy" / "secrets"
+
+
+def store_label() -> str:
+    """What to call the store in messages: the Keychain, or the folder."""
+    folder = secrets_dir()
+    return "the Keychain" if folder is None else str(folder)
+
+
+def _secret_file(folder: Path, item: str) -> Path:
+    # The item name becomes a file name, so it must not be able to leave the
+    # folder or hide in it.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", item or ""):
+        raise ValueError(f"not a valid credential name: {item!r}")
+    return folder / item
+
+
+def _file_get(folder: Path, item: str) -> str:
+    try:
+        path = _secret_file(folder, item)
+        mode = path.stat().st_mode
+        if mode & 0o077:
+            raise SecretNotFoundError(
+                f"{path} is readable by other users; refusing to use it. Fix with:\n"
+                f"  chmod 600 {path}")
+        return path.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError) as exc:
+        raise SecretNotFoundError(
+            f"No credential named {item!r} in {folder}. Register it once with:\n"
+            f"  brain secret set {item}") from exc
+
+
+def _file_set(folder: Path, item: str, value: str) -> None:
+    try:
+        path = _secret_file(folder, item)
+        folder.mkdir(parents=True, exist_ok=True)
+        os.chmod(folder, 0o700)
+        tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, value.strip().encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except (OSError, ValueError) as exc:
+        raise SecretWriteError(f"could not store {item!r}: {exc}") from exc
+    if _file_get(folder, item) != value.strip():
+        raise SecretWriteError(
+            f"{item!r} was stored with a different value than the one given")
+
+
 def get_secret(item: str) -> str:
     """Read a generic password from the macOS Keychain by service name.
 
@@ -42,6 +119,9 @@ def get_secret(item: str) -> str:
     than letting a raw non-zero-exit CalledProcessError surface to whoever
     wrote the connector.
     """
+    folder = secrets_dir()
+    if folder is not None:
+        return _file_get(folder, item)
     result = subprocess.run(
         ["security", "find-generic-password", "-s", item, "-w"],
         capture_output=True,
@@ -84,6 +164,11 @@ def set_secret(item: str, value: str) -> None:
         raise SecretWriteError(
             f"{item!r}: a credential containing a line break cannot be stored. "
             "Check for a stray newline in a pasted token.")
+
+    folder = secrets_dir()
+    if folder is not None:
+        _file_set(folder, item, value)
+        return
 
     result = subprocess.run(
         ["security", "add-generic-password", "-a", getpass.getuser(),

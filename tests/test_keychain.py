@@ -19,6 +19,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import support  # noqa: E402,F401  (pins the macOS backend)
 from brainiphy_cli import keychain  # noqa: E402
 
 

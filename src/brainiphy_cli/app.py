@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import getpass
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -62,13 +61,7 @@ def _secret_item(project: Path, connector: str) -> str:
     credential). Read it from the file rather than assume, so storing a
     credential writes the item the script will look up.
     """
-    script = project / "connectors" / connector / "sync.py"
-    if script.exists():
-        match = re.search(r"""^SECRET_ITEM = ["'](.+?)["']$""",
-                          script.read_text(encoding="utf-8", errors="ignore"), re.MULTILINE)
-        if match and "REPLACE_ME" not in match.group(1):
-            return match.group(1)
-    return project_mod.secret_item_name(project, connector)
+    return project_mod.connector_secret_item(project, connector)
 
 
 def _pause(message: str = "press any key to go back") -> None:
@@ -269,6 +262,11 @@ def _do_implement(project: Path) -> None:
 
         name, why = pending[picked]
         script = project / "connectors" / name / "sync.py"
+        if not script.exists():
+            with ui.framed("missing connector", name):
+                ui.warn("restore the connector script or recreate this source:", script)
+            _pause()
+            continue
         can_probe = "collect.run" in script.read_text(encoding="utf-8", errors="ignore")
 
         todo: list[tuple[str, ...]] = [("Open it in $EDITOR", f"{why} — fix it in {script.name}", "")]
@@ -337,7 +335,7 @@ def _do_schedule(project: Path) -> None:
 
     ui.clear()
     ui.out.print(ui.app_panel(
-        Text("A LaunchAgent re-runs `brain sync` in the background so the graph\n"
+        Text("A background job re-runs `brain sync` in the background so the graph\n"
              "does not go stale.", style="brain.info"),
         title="keep it in sync", subtitle=ui.short_path(project)))
     answer = prompt.ask("How often, in minutes?", default="15")
@@ -399,7 +397,7 @@ def _tool_credentials(project: Path) -> None:
     item = _secret_item(project, names[picked])
     ui.clear()
     ui.out.print(ui.app_panel(
-        Text(f"Stored in the macOS Keychain as '{item}'.\n"
+        Text(f"Stored in {keychain.store_label()} as '{item}'.\n"
              "Input is hidden and it never touches a file or a chat.", style="brain.info"),
         title="set a credential", subtitle=ui.short_path(project)))
     try:
@@ -413,7 +411,7 @@ def _tool_credentials(project: Path) -> None:
             except keychain.SecretWriteError as exc:
                 ui.error(str(exc))
             else:
-                ui.ok("stored in the Keychain:", item)
+                ui.ok(f"stored in {keychain.store_label()}:", item)
         else:
             ui.warn("empty value, nothing stored")
     _pause()
@@ -536,9 +534,9 @@ def _prepare(project: Path) -> None:
     """
     registry = project / "connectors" / "registry.yaml"
     ignore = project / ".graphifyignore"
-    if registry.exists() and ignore.exists() and "connectors/" in ignore.read_text(
+    if registry.exists() and ignore.exists() and "connectors/" in {line.strip() for line in ignore.read_text(
         encoding="utf-8", errors="ignore"
-    ):
+    ).splitlines()}:
         return
     with ui.framed("preparing the folder", ui.short_path(project)):
         project_mod.scaffold(project)

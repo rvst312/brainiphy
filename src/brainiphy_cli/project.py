@@ -12,7 +12,11 @@ argparse plumbing and exit codes stay in cli.py.
 """
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
+import math
+import plistlib
 import os
 import re
 import shlex
@@ -20,13 +24,16 @@ import shutil
 import site
 import subprocess
 import sys
+import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from xml.parsers.expat import ExpatError
 
 import yaml
 
-from brainiphy_cli import brains, presets, sync as sync_mod, ui
+from brainiphy_cli import brains, hostos, presets, sync as sync_mod, systemd, ui
+from brainiphy_cli.storage import atomic_write, contained_path, exclusive_lock, validate_name
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -39,6 +46,9 @@ REGISTRY_HEADER = """\
 
 GITIGNORE_ENTRIES = [
     "connectors/state/",
+    "connectors/.sync.lock",
+    "connectors/.identity.lock",
+    "connectors/.graph-pending.json",
     "connectors/logs/",
     "mirrors/",
     "raw/",
@@ -87,6 +97,8 @@ def type_label(entry: dict, project: Path | None = None) -> str:
     than "http api" does.
     """
     kind = entry.get("type")
+    if kind is not None and not isinstance(kind, str):
+        return "invalid type"
     if not kind and project is not None:
         kind = _infer_type(project, entry.get("name", ""))
     if not kind:
@@ -111,11 +123,14 @@ def slug(text: str) -> str:
 
 
 def find_exe(name: str) -> str:
+    sibling = Path(sys.executable).parent / name
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return str(sibling)
     on_path = shutil.which(name)
     if on_path:
         return on_path
     candidate = Path(site.getuserbase()) / "bin" / name
-    if candidate.exists():
+    if candidate.is_file() and os.access(candidate, os.X_OK):
         return str(candidate)
     raise FileNotFoundError(f"{name} not found on PATH or in {Path(site.getuserbase()) / 'bin'}")
 
@@ -152,7 +167,8 @@ def append_ignore_entries(path: Path, entries: list[str], header_comment: str) -
     """Append any missing lines to a gitignore-syntax file, creating it if
     needed. Returns how many lines were added."""
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    missing = [line for line in entries if line not in existing]
+    existing_lines = {line.strip() for line in existing.splitlines()}
+    missing = [line for line in entries if line not in existing_lines]
     if not missing:
         return 0
     with path.open("a", encoding="utf-8") as fh:
@@ -173,7 +189,7 @@ def write_registry_entries(project: Path, entries: list[dict]) -> None:
     registry_path = project / "connectors" / "registry.yaml"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     body = yaml.safe_dump({"connectors": entries}, sort_keys=False, default_flow_style=False)
-    registry_path.write_text(REGISTRY_HEADER + "\n" + body, encoding="utf-8")
+    atomic_write(registry_path, REGISTRY_HEADER + "\n" + body)
 
 
 # ------------------------------------------------------------- scaffold ----
@@ -182,7 +198,8 @@ def scaffold(project: Path) -> None:
     """Create connectors/, registry.yaml and the two ignore files. Idempotent —
     safe to re-run on a project that is already half set up."""
     project.mkdir(parents=True, exist_ok=True)
-    (project / "connectors" / "state").mkdir(parents=True, exist_ok=True)
+    contained_path(project, "connectors", "state").mkdir(parents=True, exist_ok=True)
+    project_namespace(project, create=True)
 
     registry_path = project / "connectors" / "registry.yaml"
     if registry_path.exists():
@@ -312,8 +329,23 @@ def create_connector(
     Returns the script path, or None when a script was already there (never
     overwritten — it may hold real work) or the preset name was unknown.
     """
-    connector_dir = project / "connectors" / name
-    script_path = connector_dir / "sync.py"
+    try:
+        validate_name(name)
+        if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+            raise ValueError("interval_minutes must be finite and positive")
+        script_path = contained_path(project, "connectors", name, "sync.py")
+        entries = load_registry_entries(project)
+        if any(not isinstance(e, dict) or not e.get("name") for e in entries):
+            raise ValueError("repair unnamed entries in registry.yaml before adding a connector")
+        if mirror:
+            source = mirror.resolve()
+            output = contained_path(project, "raw", name).resolve()
+            if source == output or source in output.parents or output in source.parents:
+                raise ValueError("mirror source and output must not overlap")
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        ui.error(str(exc))
+        return None
+    connector_dir = script_path.parent
 
     if script_path.exists():
         ui.error("already exists, not overwriting it:", script_path)
@@ -342,7 +374,8 @@ def create_connector(
         template, _ = set_constant(template, "MIRROR_SOURCE", f"Path({str(mirror)!r})")
     if api_base:
         template, _ = set_constant(template, "BASE_URL", repr(api_base.rstrip("/")))
-    if chosen or api_base:
+    project_namespace(project, create=True)
+    if not mirror:
         template, _ = set_constant(template, "SECRET_ITEM",
                                    repr(secret_item_name(project, name)))
 
@@ -371,7 +404,6 @@ def create_connector(
         else CUSTOM
     )
 
-    entries = load_registry_entries(project)
     if any(e.get("name") == name for e in entries):
         ui.info(f"{name} was already in registry.yaml, not duplicating it")
     else:
@@ -383,9 +415,98 @@ def create_connector(
     return script_path
 
 
+def project_namespace(project: Path, *, create: bool = False) -> str:
+    """Stable resource namespace; inspection never creates it.
+
+    A fresh identifier separates same-named clients and reused paths. Persisting
+    it keeps it stable when the folder is subsequently moved or renamed. The
+    read-only fallback for legacy brains is provisional until initialization.
+    """
+    identity = contained_path(project, "connectors", "identity.json")
+    if create:
+        with exclusive_lock(contained_path(project, "connectors", ".identity.lock")):
+            if identity.exists():
+                return project_namespace(project)
+            value = f"{slug(project.name)[:48]}-{uuid.uuid4().hex}"
+            atomic_write(identity, json.dumps({"namespace": value}) + "\n")
+            return value
+    if identity.exists():
+        data = json.loads(identity.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or "namespace" not in data:
+            raise ValueError(f"invalid brain identity at {identity}; restore it before making changes")
+        value = data["namespace"]
+        return validate_name(value)
+    digest = hashlib.sha256(str(project.resolve()).encode("utf-8")).hexdigest()[:32]
+    value = f"{slug(project.name)[:48]}-{digest}"
+    return value
+
+
 def secret_item_name(project: Path, connector: str) -> str:
-    """Conventional Keychain item name for a connector's credential."""
-    return f"graphify-{slug(project.name)}-{connector}"
+    """Unique default; existing scripts may deliberately name another item."""
+    validate_name(connector)
+    return f"graphify-{project_namespace(project)}-{connector}"
+
+
+def connector_secret_item(project: Path, connector: str) -> str:
+    script = contained_path(project, "connectors", validate_name(connector), "sync.py")
+    if script.exists():
+        try:
+            tree = ast.parse(script.read_text(encoding="utf-8"))
+            for node in tree.body:
+                if (isinstance(node, ast.Assign)
+                        and any(isinstance(t, ast.Name) and t.id == "SECRET_ITEM" for t in node.targets)
+                        and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+                        and "REPLACE_ME" not in node.value.value):
+                    return node.value.value
+        except (SyntaxError, ValueError):
+            pass
+    return secret_item_name(project, connector)
+
+
+def migrate_identity(project: Path) -> bool:
+    """Copy legacy credentials and update conventional template references.
+
+    Explicitly named custom credentials are kept. No Keychain item is deleted;
+    a shared legacy item may still be needed by another brain.
+    """
+    from brainiphy_cli import keychain
+
+    if not brains.is_brain(project):
+        ui.error("not a scaffolded brain:", project)
+        return False
+    project_namespace(project, create=True)
+    ok = True
+    for entry in load_registry_entries(project):
+        try:
+            name = validate_name(entry.get("name") if isinstance(entry, dict) else None)
+        except ValueError as exc:
+            ui.error(str(exc))
+            ok = False
+            continue
+        script = contained_path(project, "connectors", name, "sync.py")
+        if not script.exists():
+            continue
+        old = f"graphify-{slug(project.name)}-{name}"
+        new = secret_item_name(project, name)
+        if connector_secret_item(project, name) != old:
+            continue
+        try:
+            # Never replace a credential already set for the unique namespace.
+            try:
+                keychain.get_secret(new)
+            except keychain.SecretNotFoundError:
+                keychain.set_secret(new, keychain.get_secret(old))
+            text = script.read_text(encoding="utf-8")
+            updated, replaced = set_constant(text, "SECRET_ITEM", repr(new))
+            if not replaced:
+                raise ValueError(f"cannot safely rewrite SECRET_ITEM in {script}")
+            atomic_write(script, updated)
+            ui.ok(f"{name}: migrated credential reference to {new}")
+        except (keychain.SecretNotFoundError, keychain.SecretWriteError, ValueError) as exc:
+            ui.error(str(exc))
+            ok = False
+    ui.info("legacy Keychain items were retained; probe each connector to verify its account")
+    return ok
 
 
 # -------------------------------------------------------- connect to Claude --
@@ -402,7 +523,7 @@ def connect_claude(project: Path, *, desktop: bool = False, trust_desktop: bool 
     """
     with ui.working("graphify claude install"):
         result = subprocess.run(
-            ["graphify", "claude", "install"], cwd=project, capture_output=True, text=True
+            [find_exe("graphify"), "claude", "install"], cwd=project, capture_output=True, text=True
         )
     ui.raw(result.stdout)
     if result.returncode != 0:
@@ -426,8 +547,13 @@ def connect_claude(project: Path, *, desktop: bool = False, trust_desktop: bool 
 
     if desktop:
         graphify_mcp = find_exe("graphify-mcp")
-        server_name = f"graphify-{slug(project.name)}"
+        server_name = f"graphify-{project_namespace(project, create=True)}"
         data.setdefault("mcpServers", {})
+        graph_path = str(project / "graphify-out" / "graph.json")
+        for existing_name, config in list(data["mcpServers"].items()):
+            if (existing_name != server_name and existing_name.startswith("graphify-")
+                    and isinstance(config, dict) and config.get("args") == ["--graph", graph_path]):
+                del data["mcpServers"][existing_name]
         data["mcpServers"][server_name] = {
             "command": graphify_mcp,
             "args": ["--graph", str(project / "graphify-out" / "graph.json")],
@@ -443,13 +569,13 @@ def connect_claude(project: Path, *, desktop: bool = False, trust_desktop: bool 
         else:
             ui.info("already in localAgentModeTrustedFolders")
 
-    DESKTOP_CONFIG.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic_write(DESKTOP_CONFIG, json.dumps(data, indent=2))
     ui.hint("restart Claude Desktop to apply the changes")
     return True
 
 
 def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d%H%M%S")
+    return datetime.now().strftime("%Y%m%d%H%M%S%f")
 
 
 # ------------------------------------------------------------- scheduling ---
@@ -484,6 +610,36 @@ def _agent_path() -> str:
     return ":".join([*dirs, _LAUNCHD_DEFAULT_PATH])
 
 
+def agent_belongs_to(path: Path, project: Path) -> bool:
+    try:
+        data = plistlib.loads(path.read_bytes())
+        if not isinstance(data, dict):
+            return False
+        args = data.get("ProgramArguments", [])
+        return (len(args) >= 3 and args[1] == "sync"
+                and Path(args[2]).resolve() == project.resolve())
+    except (OSError, ValueError, TypeError, KeyError, ExpatError, plistlib.InvalidFileException):
+        return False
+
+
+def launch_agent(project: Path) -> Path | None:
+    """The installed schedule for this project: a LaunchAgent plist on macOS,
+    a systemd timer on Linux."""
+    if not hostos.is_macos():
+        return systemd.find(project)
+    folder = Path.home() / "Library/LaunchAgents"
+    return next((p for p in sorted(folder.glob("com.graphify.sync.*.plist"))
+                 if agent_belongs_to(p, project)), None)
+
+
+def _agent_has_namespace(path: Path, namespace: str) -> bool:
+    try:
+        data = plistlib.loads(path.read_bytes())
+        return isinstance(data, dict) and data.get("BrainiphyNamespace") == namespace
+    except (OSError, ValueError, ExpatError, plistlib.InvalidFileException):
+        return False
+
+
 def schedule(
     project: Path,
     *,
@@ -491,7 +647,8 @@ def schedule(
     slug_override: str | None = None,
     load: bool = False,
 ) -> bool:
-    """Write (and optionally load) the LaunchAgent that re-runs `brain sync`.
+    """Write (and optionally load) the job that re-runs `brain sync`: a
+    LaunchAgent on macOS, a systemd timer on Linux (systemd.py).
 
     Refuses on a project with no registered connectors: a sync loop with
     nothing to sync is a silent no-op that is confusing to debug months later.
@@ -500,24 +657,55 @@ def schedule(
         ui.error("no connectors registered — nothing worth scheduling yet")
         return False
 
-    name = slug_override or slug(project.name)
+    if not math.isfinite(interval_minutes) or interval_minutes * 60 < 1:
+        ui.error("interval_minutes must be finite and at least one second")
+        return False
+    try:
+        name = validate_name(slug_override) if slug_override else project_namespace(project, create=True)
+    except ValueError as exc:
+        ui.error(str(exc))
+        return False
     brain_exe = find_exe("brain")
+    if not hostos.is_macos():
+        return systemd.schedule(
+            project, name=name, namespace=project_namespace(project, create=True),
+            brain_exe=brain_exe, interval_minutes=interval_minutes,
+            explicit_name=bool(slug_override), load=load)
     log_dir = project / "connectors" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    plist_text = (TEMPLATE_DIR / "launchd_template.plist").read_text(encoding="utf-8")
-    plist_text = (
-        plist_text.replace("__PROJECT_SLUG__", name)
-        .replace("__BRAIN_EXE__", brain_exe)
-        .replace("__PROJECT_PATH__", str(project))
-        .replace("__PATH__", _agent_path())
-        .replace("__INTERVAL_SECONDS__", str(int(interval_minutes * 60)))
-        .replace("__LOG_DIR__", str(log_dir))
-    )
-
+    # Parse the template first, then replace values as data, never raw XML.
+    template = (TEMPLATE_DIR / "launchd_template.plist").read_text(encoding="utf-8")
+    data = plistlib.loads(template.replace("__INTERVAL_SECONDS__", "1").encode("utf-8"))
+    substitutions = {"__PROJECT_SLUG__": name, "__BRAIN_EXE__": brain_exe,
+                     "__PROJECT_PATH__": str(project), "__PATH__": _agent_path(),
+                     "__LOG_DIR__": str(log_dir)}
+    def fill(value):
+        if isinstance(value, dict):
+            return {k: fill(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [fill(v) for v in value]
+        if isinstance(value, str):
+            return re.sub(r"__[A-Z_]+__", lambda m: substitutions.get(m.group(), m.group()), value)
+        return value
+    data = fill(data)
+    data["StartInterval"] = int(interval_minutes * 60)
+    namespace = project_namespace(project, create=True)
+    data["BrainiphyNamespace"] = namespace
     plist_path = Path.home() / "Library/LaunchAgents" / f"com.graphify.sync.{name}.plist"
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
-    plist_path.write_text(plist_text, encoding="utf-8")
+    # Keep an existing job's label if it belongs to this exact project.
+    existing = launch_agent(project)
+    if existing is None:
+        existing = next((p for p in sorted(plist_path.parent.glob("com.graphify.sync.*.plist"))
+                         if _agent_has_namespace(p, namespace)), None)
+    if existing and not slug_override:
+        plist_path = existing
+        data["Label"] = plistlib.loads(existing.read_bytes())["Label"]
+    if (plist_path.exists() and not agent_belongs_to(plist_path, project)
+            and not _agent_has_namespace(plist_path, namespace)):
+        ui.error("schedule name is already used by another project:", plist_path)
+        return False
+    atomic_write(plist_path, plistlib.dumps(data).decode("utf-8"))
     ui.ok("wrote", plist_path)
 
     load_cmd = ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)]
@@ -525,6 +713,14 @@ def schedule(
         ui.hint("not loaded yet — to activate it:", " ".join(load_cmd))
         return True
 
+    service = f"gui/{os.getuid()}/{data['Label']}"
+    loaded = subprocess.run(["launchctl", "print", service], capture_output=True, text=True)
+    if loaded.returncode == 0:
+        stopped = subprocess.run(["launchctl", "bootout", service], capture_output=True, text=True)
+        if stopped.returncode != 0:
+            ui.raw(stopped.stderr, stderr=True)
+            ui.error("could not unload the existing job; new schedule has not been loaded")
+            return False
     result = subprocess.run(load_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         ui.raw(result.stderr, stderr=True)

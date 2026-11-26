@@ -179,7 +179,10 @@ remove_from_path() {
   # It used to be one here, and because the redirect had already truncated the
   # profile, the failure emptied it instead of filtering it.
   if ! awk -v startmark="$MARKER_OPEN" -v endmark="$MARKER_CLOSE" '
-    $0 == startmark { skipping = 1 } !skipping { print } $0 == endmark { skipping = 0 }
+    $0 == startmark { if (skipping) exit 2; skipping = 1; next }
+    $0 == endmark { if (!skipping) exit 2; skipping = 0; next }
+    !skipping { print }
+    END { if (skipping) exit 2 }
   ' "$profile.brainiphy-backup" > "$profile.brainiphy-filtered"; then
     rm -f "$profile.brainiphy-filtered"
     die "could not filter $profile — it is untouched, backup at $profile.brainiphy-backup"
@@ -209,7 +212,13 @@ do_uninstall() {
   fi
 
   if [ -L "$SKILL_DIR" ]; then
-    run rm "$SKILL_DIR"; ok "removed the skill link"
+    skill_target="$(readlink "$SKILL_DIR")"
+    script_dir="$(cd -P "$(dirname "$0")" 2>/dev/null && pwd)"
+    if [ "$skill_target" = "$PREFIX" ] || [ "$skill_target" = "$script_dir" ]; then
+      run rm "$SKILL_DIR"; ok "removed the skill link"
+    else
+      info "skill link points to another checkout — leaving it alone"
+    fi
   fi
 
   remove_from_path

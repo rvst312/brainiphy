@@ -9,6 +9,7 @@ sync.py in the project, not extending this orchestrator.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import site
@@ -21,6 +22,7 @@ from pathlib import Path
 import yaml
 
 from brainiphy_cli import ui
+from brainiphy_cli.storage import atomic_write, contained_path, exclusive_lock, validate_name
 
 
 @dataclass
@@ -81,17 +83,13 @@ def resolve_backend(explicit: str | None = None) -> str | None:
 
 
 def find_graphify() -> str:
-    """Locate the graphify CLI: PATH first, then this interpreter's --user
-    bin dir (matches wherever `pip install --user graphifyy` put it)."""
-    on_path = shutil.which("graphify")
-    if on_path:
-        return on_path
-    candidate = Path(site.getuserbase()) / "bin" / "graphify"
-    if candidate.exists():
-        return str(candidate)
-    # Imported here, not at module scope: project.py imports this module, and
-    # the cycle would break both. Same reason type_label() is deferred in run().
+    """Locate graphify beside this interpreter, then PATH and the user bin dir."""
     from brainiphy_cli import project as project_mod
+
+    try:
+        return project_mod.find_exe("graphify")
+    except FileNotFoundError:
+        pass
 
     raise FileNotFoundError(
         "graphify CLI not found on PATH or in the user site bin dir "
@@ -101,15 +99,17 @@ def find_graphify() -> str:
 
 
 def load_registry(project: Path) -> list[dict]:
-    registry_path = project / "connectors" / "registry.yaml"
+    registry_path = contained_path(project, "connectors", "registry.yaml")
     if not registry_path.exists():
         return []
     data = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
-    return data.get("connectors") or []
+    if not isinstance(data, dict) or not isinstance(data.get("connectors", []), list):
+        raise ValueError("registry.yaml must contain a connectors list")
+    return data.get("connectors", [])
 
 
 def _state_path(project: Path, name: str) -> Path:
-    return project / "connectors" / "state" / f"{name}.json"
+    return contained_path(project, "connectors", "state", f"{validate_name(name)}.json")
 
 
 def is_due(project: Path, name: str, interval_minutes: float) -> bool:
@@ -133,10 +133,10 @@ def is_due(project: Path, name: str, interval_minutes: float) -> bool:
 def _mark_ran(project: Path, name: str) -> None:
     state_file = _state_path(project, name)
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps({"last_run": datetime.now(timezone.utc).isoformat()}))
+    atomic_write(state_file, json.dumps({"last_run": datetime.now(timezone.utc).isoformat()}))
 
 
-def build_graph(project: Path, *, full: bool = False, backend: str | None = None) -> tuple[bool, str]:
+def build_graph(project: Path, *, full: bool = False, backend: str | None = None, code_only: bool = False) -> tuple[bool, str]:
     """Rebuild the graph. Returns (succeeded, what-was-run).
 
     Two different graphify commands, and picking the wrong one silently does
@@ -147,7 +147,8 @@ def build_graph(project: Path, *, full: bool = False, backend: str | None = None
       - `graphify update` only re-extracts *code* files with a local AST pass,
         no API key. Cheap, but a no-op on a corpus of documents.
 
-    So: full pass the first time (and whenever asked), incremental afterwards.
+    Semantic extraction is the default on every build. Code-only AST updates
+    are an explicit opt-in for existing graphs; --full still forces extraction.
 
     Only the full pass takes a backend — `update` is a local AST pass with no
     model in it, and passing --backend to it is not just useless but rejected.
@@ -162,7 +163,7 @@ def build_graph(project: Path, *, full: bool = False, backend: str | None = None
     graph_json = project / "graphify-out" / "graph.json"
     first_build = not graph_json.exists()
 
-    if full or first_build:
+    if full or first_build or not code_only:
         cmd = [graphify, "extract", str(project), "--no-gitignore"]
         chosen = resolve_backend(backend)
         if chosen:
@@ -201,17 +202,43 @@ def build_graph(project: Path, *, full: bool = False, backend: str | None = None
     return False, label
 
 
-def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: str | None = None) -> SyncReport:
+def run(project: Path, *, dry_run: bool = False, full: bool = False,
+        backend: str | None = None, code_only: bool = False) -> SyncReport:
+    kwargs = dict(dry_run=dry_run, full=full, backend=backend, code_only=code_only)
+    if dry_run:
+        return _run(project, **kwargs)
+    try:
+        lock = contained_path(project, "connectors", ".sync.lock")
+        with exclusive_lock(lock):
+            return _run(project, **kwargs)
+    except (RuntimeError, OSError, ValueError, yaml.YAMLError) as exc:
+        ui.error(str(exc))
+        return SyncReport(errors=[str(exc)])
+
+
+def _run(project: Path, *, dry_run: bool = False, full: bool = False, backend: str | None = None, code_only: bool = False) -> SyncReport:
     project = project.resolve()
-    connectors = load_registry(project)
     report = SyncReport()
+    try:
+        connectors = load_registry(project)
+        pending = contained_path(project, "connectors", ".graph-pending.json")
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        ui.error(str(exc))
+        report.errors.append(str(exc))
+        return report
+    pending_full = full or not code_only
+    if pending.exists():
+        try:
+            pending_full = pending_full or bool(json.loads(pending.read_text())["full"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pending_full = True
 
     if not connectors:
         ui.warn("0 connectors registered in", project / "connectors/registry.yaml")
         # A brain can still have content without connectors (`graphify add
         # <url>` writes straight into raw/), so a --full run keeps going and
         # rebuilds; a plain one has nothing to do.
-        if not full:
+        if not full and not pending.exists():
             return report
 
     any_ran = False
@@ -234,11 +261,21 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
             report.errors.append(f"registry entry without a name: {entry!r}")
             continue
         try:
+            validate_name(name)
+            script = contained_path(project, "connectors", name, "sync.py")
+            out_dir = contained_path(project, "raw", name)
+            _state_path(project, name)
+        except ValueError as exc:
+            ui.error(str(exc))
+            report.errors.append(str(exc))
+            continue
+        try:
             interval = float(entry.get("interval_minutes", 60))
+            if not math.isfinite(interval) or interval <= 0:
+                raise ValueError("interval must be finite and positive")
         except (TypeError, ValueError):
             ui.warn(f"{name}: unreadable interval_minutes, using 60")
             interval = 60
-        script = project / "connectors" / name / "sync.py"
         due = is_due(project, name, interval)
 
         if dry_run:
@@ -259,8 +296,10 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
             report.errors.append(f"{name}: missing {script}")
             continue
 
-        out_dir = project / "raw" / name
         out_dir.mkdir(parents=True, exist_ok=True)
+        # A connector can publish some objects before failing. Persist work
+        # before starting it, so neither failure nor interruption loses it.
+        atomic_write(pending, json.dumps({"full": pending_full}))
         with ui.working(f"running {name} -> {out_dir}"):
             result = subprocess.run(
                 [sys.executable, str(script), "--out", str(out_dir)],
@@ -286,8 +325,9 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
 
     # A --full run rebuilds even when no connector was due: the corpus may have
     # changed underneath (a mirrored folder edited by hand, `graphify add`).
-    if any_ran or full:
-        succeeded, label = build_graph(project, full=full, backend=backend)
+    if any_ran or full or pending.exists():
+        atomic_write(pending, json.dumps({"full": pending_full}))
+        succeeded, label = build_graph(project, full=pending_full, backend=backend, code_only=code_only)
         if succeeded:
             ui.ok("graph rebuilt")
             # graphify signs off by suggesting its own `cluster-only`, which is
@@ -295,6 +335,7 @@ def run(project: Path, *, dry_run: bool = False, full: bool = False, backend: st
             # view` draws, on demand and without a model.
             ui.hint("see it as a picture:", f"brain view {ui.short_path(project)}")
             report.graph_rebuilt = True
+            pending.unlink(missing_ok=True)
         else:
             report.errors.append(f"{label} failed")
     elif not report.errors:

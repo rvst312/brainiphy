@@ -15,7 +15,7 @@ what a record from each one should look like as a document.
 To implement it:
   1. Write one collect_* function per kind of thing you want in the brain.
      Return a list of dicts with id/title/body; any other key becomes a
-     frontmatter field.
+     frontmatter field. Return a complete snapshot; raise if a response is incomplete.
   2. List them in COLLECTORS with the subfolder their records belong in.
   3. Run `sync.py --out /tmp/probe --probe` to see which ones the credential
      can actually read. Expect some to come back "no scope" — that is the
@@ -59,7 +59,7 @@ client = HttpClient(BASE_URL, secret_item=SECRET_ITEM, extra_headers=EXTRA_HEADE
 #     lookup lives in another collector, stash it in a module-level dict and
 #     order COLLECTORS so the lookup is filled first.
 #   - Use a stable remote id for the record id. write_record() slugs it into the
-#     filename, so re-runs overwrite in place instead of piling up duplicate
+#     readable filename and adds an ID hash, so re-runs overwrite instead of piling up duplicate
 #     nodes every sync.
 
 def collect_things() -> list[dict]:
@@ -79,7 +79,7 @@ def collect_things() -> list[dict]:
 
 
 COLLECTORS = [
-    Collector("things", subfolder="things", fetch=collect_things),
+    Collector("things", subfolder="things", fetch=collect_things, snapshot=True),
 ]
 
 
