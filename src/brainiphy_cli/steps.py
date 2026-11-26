@@ -300,7 +300,7 @@ def inspect(project: Path) -> BrainState:
             7,
             "schedule",
             "Keep it in sync",
-            "a LaunchAgent that re-runs brain sync on its own",
+            "a background job that re-runs brain sync on its own",
             state=DONE if plist else TODO,
             detail=f"configured at {plist}; live activation not checked" if plist else "not scheduled — sync is manual for now",
             command=None if plist else f"brain schedule {short} --interval-minutes 15 --load",

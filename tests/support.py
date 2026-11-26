@@ -14,6 +14,11 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
+# The suite was written against the macOS services (Keychain, launchd), all
+# mocked. Pin that family so it means the same on the Linux CI runners; the
+# Linux-specific tests (test_linux.py) switch it per test.
+os.environ.setdefault("BRAINIPHY_BACKEND", "macos")
+
 
 @contextlib.contextmanager
 def quiet():

@@ -286,7 +286,7 @@ def cmd_secret_set(args: argparse.Namespace) -> int:
         # next run, where a missing credential reads as an auth problem.
         ui.error(str(exc))
         return 1
-    ui.ok("stored in the Keychain:", args.item)
+    ui.ok(f"stored in {keychain.store_label()}:", args.item)
     return 0
 
 
@@ -497,11 +497,11 @@ def _main() -> int:
     p.add_argument("--trust-desktop", action="store_true", help="Add the project to localAgentModeTrustedFolders (additive)")
     p.set_defaults(func=cmd_connect_claude, framed=True)
 
-    p = sub.add_parser("schedule", help="Generate and install a LaunchAgent for periodic `brain sync`")
+    p = sub.add_parser("schedule", help="Install the job that re-runs `brain sync` (LaunchAgent on macOS, systemd timer on Linux)")
     p.add_argument("project", nargs="?", default=".")
     p.add_argument("--interval-minutes", type=float, default=15)
     p.add_argument("--slug", default=None)
-    p.add_argument("--load", action="store_true", help="Load it immediately with launchctl")
+    p.add_argument("--load", action="store_true", help="Activate it immediately (launchctl / systemctl)")
     p.set_defaults(func=cmd_schedule, framed=True)
 
     p = sub.add_parser("migrate-identity", help="Move conventional legacy credential references to unique per-brain names")

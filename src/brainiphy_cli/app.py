@@ -335,7 +335,7 @@ def _do_schedule(project: Path) -> None:
 
     ui.clear()
     ui.out.print(ui.app_panel(
-        Text("A LaunchAgent re-runs `brain sync` in the background so the graph\n"
+        Text("A background job re-runs `brain sync` in the background so the graph\n"
              "does not go stale.", style="brain.info"),
         title="keep it in sync", subtitle=ui.short_path(project)))
     answer = prompt.ask("How often, in minutes?", default="15")
@@ -397,7 +397,7 @@ def _tool_credentials(project: Path) -> None:
     item = _secret_item(project, names[picked])
     ui.clear()
     ui.out.print(ui.app_panel(
-        Text(f"Stored in the macOS Keychain as '{item}'.\n"
+        Text(f"Stored in {keychain.store_label()} as '{item}'.\n"
              "Input is hidden and it never touches a file or a chat.", style="brain.info"),
         title="set a credential", subtitle=ui.short_path(project)))
     try:
@@ -411,7 +411,7 @@ def _tool_credentials(project: Path) -> None:
             except keychain.SecretWriteError as exc:
                 ui.error(str(exc))
             else:
-                ui.ok("stored in the Keychain:", item)
+                ui.ok(f"stored in {keychain.store_label()}:", item)
         else:
             ui.warn("empty value, nothing stored")
     _pause()

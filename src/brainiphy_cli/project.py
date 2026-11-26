@@ -32,7 +32,7 @@ from xml.parsers.expat import ExpatError
 
 import yaml
 
-from brainiphy_cli import brains, presets, sync as sync_mod, ui
+from brainiphy_cli import brains, hostos, presets, sync as sync_mod, systemd, ui
 from brainiphy_cli.storage import atomic_write, contained_path, exclusive_lock, validate_name
 
 TEMPLATE_DIR = Path(__file__).resolve().parent
@@ -623,6 +623,10 @@ def agent_belongs_to(path: Path, project: Path) -> bool:
 
 
 def launch_agent(project: Path) -> Path | None:
+    """The installed schedule for this project: a LaunchAgent plist on macOS,
+    a systemd timer on Linux."""
+    if not hostos.is_macos():
+        return systemd.find(project)
     folder = Path.home() / "Library/LaunchAgents"
     return next((p for p in sorted(folder.glob("com.graphify.sync.*.plist"))
                  if agent_belongs_to(p, project)), None)
@@ -643,7 +647,8 @@ def schedule(
     slug_override: str | None = None,
     load: bool = False,
 ) -> bool:
-    """Write (and optionally load) the LaunchAgent that re-runs `brain sync`.
+    """Write (and optionally load) the job that re-runs `brain sync`: a
+    LaunchAgent on macOS, a systemd timer on Linux (systemd.py).
 
     Refuses on a project with no registered connectors: a sync loop with
     nothing to sync is a silent no-op that is confusing to debug months later.
@@ -661,6 +666,11 @@ def schedule(
         ui.error(str(exc))
         return False
     brain_exe = find_exe("brain")
+    if not hostos.is_macos():
+        return systemd.schedule(
+            project, name=name, namespace=project_namespace(project, create=True),
+            brain_exe=brain_exe, interval_minutes=interval_minutes,
+            explicit_name=bool(slug_override), load=load)
     log_dir = project / "connectors" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
