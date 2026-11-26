@@ -25,13 +25,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
+import shutil
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from brainiphy_cli.frontmatter import write_record
+from brainiphy_cli.frontmatter import write_record, read_metadata, record_filename, slugify
 from brainiphy_cli.httpclient import NoScope
 from brainiphy_cli.keychain import SecretNotFoundError
+from brainiphy_cli.storage import atomic_write, contained_path, exclusive_lock, validate_name
 
 # A record is a plain dict: id/title/body are required, every other key becomes
 # a frontmatter field. Keep the extras flat and filterable — the point of
@@ -48,6 +51,9 @@ class Collector:
     subfolder: str                 # folder under --out for its records
     fetch: Callable[[], list[Record]]
     note: str = ""                 # optional caveat shown next to the result
+    # Older generated scripts did not promise completeness on malformed API
+    # responses. Enable deletion reconciliation only after auditing the fetch.
+    snapshot: bool = False
 
 
 @dataclass
@@ -86,6 +92,92 @@ def build_parser(description: str = "") -> argparse.ArgumentParser:
     return parser
 
 
+def _publish(out: Path, collector: Collector, records: list[Record],
+             source_system: str, *, peers: list[Collector]) -> None:
+    """Stage a validated batch; snapshot collectors reconcile their owned files.
+
+    Manifests keep collectors sharing a folder (e.g. tags and custom fields)
+    from pruning one another. Legacy files can be adopted by an exclusive
+    collector; shared folders only adopt records present in the new snapshot.
+    """
+    validate_name(collector.name)
+    if Path(collector.subfolder).is_absolute() or ".." in Path(collector.subfolder).parts:
+        raise ValueError("collector subfolder must stay under --out")
+    target = contained_path(out, collector.subfolder)
+    manifest = contained_path(out, ".brainiphy-state", f"{collector.name}.json")
+    folder = str(target.relative_to(out))
+    previous: set[str] = set()
+    if manifest.exists():
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        if (not isinstance(data, dict) or data.get("subfolder") != folder
+                or not isinstance(data.get("files"), list)
+                or not all(isinstance(p, str) for p in data["files"])):
+            raise ValueError("invalid collector manifest; previous files preserved")
+        for name in data["files"]:
+            if Path(name).name != name or not name.endswith(".md"):
+                raise ValueError("invalid filename in collector manifest")
+            contained_path(target, name)
+        previous.update(data["files"])
+    elif len(peers) == 1 and target.exists():
+        previous.update(p.name for p in target.glob("*.md")
+                        if read_metadata(p).get("source_system") == source_system)
+
+    occupied: set[str] = set()
+    for peer in peers:
+        if peer.name == collector.name:
+            continue
+        peer_manifest = contained_path(out, ".brainiphy-state", f"{validate_name(peer.name)}.json")
+        if peer_manifest.exists():
+            data = json.loads(peer_manifest.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or data.get("subfolder") != folder:
+                raise ValueError("collector folder changed; migrate its manifest before publishing")
+            occupied.update(data["files"])
+    previous.difference_update(occupied)
+
+    current: set[str] = set()
+    migrated: set[str] = set()
+    with tempfile.TemporaryDirectory(prefix="brainiphy-collector-") as temporary:
+        stage = Path(temporary)
+        for record in records:
+            name = record_filename(record["id"])
+            if name in occupied:
+                raise ValueError(f"record id is already owned by another collector: {record['id']!r}")
+            if name in current:
+                raise ValueError(f"duplicate record id: {record['id']!r}")
+            current.add(name)
+            legacy_name = f"{slugify(record['id'])}.md"
+            for candidate in (name, legacy_name):
+                existing = contained_path(target, candidate)
+                metadata = read_metadata(existing)
+                if (str(metadata.get("source_id")) == str(record["id"])
+                        and metadata.get("source_system") == source_system):
+                    shutil.copyfile(existing, stage / candidate)
+                    previous.add(candidate)
+                    if candidate != name:
+                        migrated.add(candidate)
+            write_record(
+                stage, record_id=record["id"], title=record["title"], body=record["body"],
+                source_system=source_system,
+                extra_fields={k: v for k, v in record.items() if k not in ("id", "title", "body")},
+            )
+
+        # No published file changes until every record has been validated.
+        for name in current:
+            destination = contained_path(target, name)
+            content = (stage / name).read_text(encoding="utf-8")
+            if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+                atomic_write(destination, content)
+        # Retain cleanup work across an interrupted publish.
+        atomic_write(manifest, json.dumps({"subfolder": folder, "files": sorted(previous | current)}))
+        removable = (previous - current if collector.snapshot else set()) | migrated
+        for name in removable:
+            stale = contained_path(target, name)
+            if read_metadata(stale).get("source_system") == source_system:
+                stale.unlink()
+        retained = current if collector.snapshot else (previous | current) - migrated
+        atomic_write(manifest, json.dumps({"subfolder": folder, "files": sorted(retained)}))
+
+
 def run(
     source_system: str,
     collectors: list[Collector],
@@ -101,6 +193,10 @@ def run(
     looks exactly like pointing it at an empty one.
     """
     args = build_parser(f"{source_system} connector").parse_args(argv)
+
+    if len({c.name for c in collectors}) != len(collectors):
+        print(f"[{source_system}] collector names must be unique", file=sys.stderr)
+        return 2
 
     selected = collectors
     if args.only:
@@ -118,6 +214,14 @@ def run(
     for collector in selected:
         try:
             records = collector.fetch()
+            if not isinstance(records, list):
+                raise ValueError("collector must return a complete list of records")
+            if not args.probe:
+                target = contained_path(args.out, collector.subfolder).resolve()
+                peers = [c for c in collectors if contained_path(args.out, c.subfolder).resolve() == target]
+                with exclusive_lock(contained_path(args.out, ".brainiphy-state", ".publish.lock")):
+                    _publish(args.out, collector, records, source_system, peers=peers)
+                written += len(records)
         except SecretNotFoundError as exc:
             # Not a per-object failure: no collector can run without the
             # credential, so reporting it once per object buries the single
@@ -133,19 +237,6 @@ def run(
                 Result(collector.name, f"ERROR {type(exc).__name__}: {_short(exc, 90)}", failed=True)
             )
             continue
-
-        if not args.probe:
-            for record in records:
-                write_record(
-                    args.out / collector.subfolder,
-                    record_id=record["id"],
-                    title=record["title"],
-                    body=record["body"],
-                    source_system=source_system,
-                    extra_fields={k: v for k, v in record.items()
-                                  if k not in ("id", "title", "body")},
-                )
-            written += len(records)
 
         status = f"ok, {len(records)} record(s)"
         if collector.note:

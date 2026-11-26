@@ -20,15 +20,14 @@ Contract (what `brain sync` expects from any connector script):
 """
 from __future__ import annotations
 
-import argparse
 import sys
-from pathlib import Path
 
-from brainiphy_cli.frontmatter import write_record
+from brainiphy_cli.collect import Collector, run
 from brainiphy_cli.keychain import get_secret  # noqa: F401  (import here for connectors that need it)
 
 
 SOURCE_SYSTEM = "REPLACE_ME"  # e.g. "hubspot-crm", "local-desktop-clientes2"
+SECRET_ITEM = "REPLACE_ME_SECRET"
 
 
 def fetch_records() -> list[dict]:
@@ -38,38 +37,16 @@ def fetch_records() -> list[dict]:
         {"id": <stable remote id>, "title": <str>, "body": <str>}
     Any other keys are written into the frontmatter as extra fields.
 
-    Example using a REST API with a Keychain-stored token:
-        import urllib.request, json
-        token = get_secret("graphify-<project-slug>-<source-name>")
-        req = urllib.request.Request(
-            "https://api.example.com/v3/records",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.load(resp)
-        return [{"id": r["id"], "title": r["name"], "body": r["notes"]} for r in data["results"]]
+    Return the complete snapshot, including an empty list if all records were
+    deleted. Raise on any incomplete fetch so the previous snapshot survives.
+    For a REST API, prefer the --api template and its HttpClient instead.
+    Read credentials with get_secret(SECRET_ITEM).
     """
     raise NotImplementedError("fetch_records() not implemented — fill this in for the real source")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True, type=Path)
-    args = parser.parse_args()
-
-    records = fetch_records()
-    for record in records:
-        write_record(
-            args.out,
-            record_id=record["id"],
-            title=record["title"],
-            body=record["body"],
-            source_system=SOURCE_SYSTEM,
-            extra_fields={k: v for k, v in record.items() if k not in ("id", "title", "body")},
-        )
-
-    print(f"[{SOURCE_SYSTEM}] wrote {len(records)} record(s) to {args.out}")
-    return 0
+    return run(SOURCE_SYSTEM, [Collector("records", ".", fetch_records, snapshot=True)])
 
 
 if __name__ == "__main__":

@@ -118,9 +118,10 @@ class JsonTests(TempProjectTestCase):
         records, _ = mirror.records_from_json(self._json('[1, 2, 3]'))
         self.assertEqual(records, [])
 
-    def test_malformed_json_is_skipped_rather_than_fatal(self):
+    def test_malformed_json_is_not_an_empty_snapshot(self):
         # One bad file must not cost the whole sync.
-        self.assertEqual(mirror.records_from_json(self._json("{ nope")), ([], False))
+        with self.assertRaises(ValueError):
+            mirror.records_from_json(self._json("{ nope"))
 
     def test_a_long_list_is_capped(self):
         items = ",".join(f'{{"n":{i}}}' for i in range(mirror.MAX_ROWS_PER_TABLE + 10))

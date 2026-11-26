@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import getpass
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -62,13 +61,7 @@ def _secret_item(project: Path, connector: str) -> str:
     credential). Read it from the file rather than assume, so storing a
     credential writes the item the script will look up.
     """
-    script = project / "connectors" / connector / "sync.py"
-    if script.exists():
-        match = re.search(r"""^SECRET_ITEM = ["'](.+?)["']$""",
-                          script.read_text(encoding="utf-8", errors="ignore"), re.MULTILINE)
-        if match and "REPLACE_ME" not in match.group(1):
-            return match.group(1)
-    return project_mod.secret_item_name(project, connector)
+    return project_mod.connector_secret_item(project, connector)
 
 
 def _pause(message: str = "press any key to go back") -> None:
@@ -269,6 +262,11 @@ def _do_implement(project: Path) -> None:
 
         name, why = pending[picked]
         script = project / "connectors" / name / "sync.py"
+        if not script.exists():
+            with ui.framed("missing connector", name):
+                ui.warn("restore the connector script or recreate this source:", script)
+            _pause()
+            continue
         can_probe = "collect.run" in script.read_text(encoding="utf-8", errors="ignore")
 
         todo: list[tuple[str, ...]] = [("Open it in $EDITOR", f"{why} — fix it in {script.name}", "")]
@@ -536,9 +534,9 @@ def _prepare(project: Path) -> None:
     """
     registry = project / "connectors" / "registry.yaml"
     ignore = project / ".graphifyignore"
-    if registry.exists() and ignore.exists() and "connectors/" in ignore.read_text(
+    if registry.exists() and ignore.exists() and "connectors/" in {line.strip() for line in ignore.read_text(
         encoding="utf-8", errors="ignore"
-    ):
+    ).splitlines()}:
         return
     with ui.framed("preparing the folder", ui.short_path(project)):
         project_mod.scaffold(project)

@@ -21,7 +21,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from brainiphy_cli.httpclient import HttpClient, NoScope  # noqa: E402
+from brainiphy_cli.httpclient import HttpClient, NoScope, IncompleteFetch, _SameOriginRedirect  # noqa: E402
 
 
 def _response(payload: dict):
@@ -85,7 +85,7 @@ class RequestTests(unittest.TestCase):
                                  retries=3, backoff_seconds=0)
 
     def test_a_successful_request_returns_parsed_json(self):
-        with mock.patch("urllib.request.urlopen", return_value=_response({"ok": True})):
+        with mock.patch.object(self.client._opener, "open", return_value=_response({"ok": True})):
             self.assertEqual(self.client.request("https://api.example.com/x"), {"ok": True})
 
     def test_401_and_403_become_no_scope_without_retrying(self):
@@ -93,19 +93,19 @@ class RequestTests(unittest.TestCase):
         # permission decision only wastes the sync's time.
         for code in (401, 403):
             with self.subTest(code=code):
-                urlopen = mock.patch("urllib.request.urlopen", side_effect=_http_error(code))
+                urlopen = mock.patch.object(self.client._opener, "open", side_effect=_http_error(code))
                 with urlopen as patched, self.assertRaises(NoScope):
                     self.client.request("https://api.example.com/x")
                 self.assertEqual(patched.call_count, 1)
 
     def test_a_rate_limit_is_retried_and_then_succeeds(self):
         responses = [_http_error(429), _response({"ok": True})]
-        with mock.patch("urllib.request.urlopen", side_effect=responses) as patched:
+        with mock.patch.object(self.client._opener, "open", side_effect=responses) as patched:
             self.assertEqual(self.client.request("https://api.example.com/x"), {"ok": True})
         self.assertEqual(patched.call_count, 2)
 
     def test_a_server_error_is_retried_until_the_attempts_run_out(self):
-        with mock.patch("urllib.request.urlopen", side_effect=_http_error(503)) as patched, \
+        with mock.patch.object(self.client._opener, "open", side_effect=_http_error(503)) as patched, \
                 self.assertRaises(RuntimeError):
             self.client.request("https://api.example.com/x")
         self.assertEqual(patched.call_count, 3)
@@ -113,13 +113,13 @@ class RequestTests(unittest.TestCase):
     def test_a_transient_network_fault_is_retried(self):
         # A DNS blip under launchd must not become a stale graph.
         responses = [urllib.error.URLError("dns"), TimeoutError("tls"), _response({"ok": 1})]
-        with mock.patch("urllib.request.urlopen", side_effect=responses) as patched:
+        with mock.patch.object(self.client._opener, "open", side_effect=responses) as patched:
             self.assertEqual(self.client.request("https://api.example.com/x"), {"ok": 1})
         self.assertEqual(patched.call_count, 3)
 
     def test_a_client_error_fails_immediately(self):
         # A 404 will not fix itself; retrying it just delays the report.
-        with mock.patch("urllib.request.urlopen", side_effect=_http_error(404)) as patched, \
+        with mock.patch.object(self.client._opener, "open", side_effect=_http_error(404)) as patched, \
                 self.assertRaises(RuntimeError):
             self.client.request("https://api.example.com/x")
         self.assertEqual(patched.call_count, 1)
@@ -176,27 +176,25 @@ class PaginateTests(unittest.TestCase):
             items = self.client.paginate("/x", {}, "items")
         self.assertEqual(len(items), 3)
 
-    def test_a_short_page_ends_the_walk_whatever_the_cursor_says(self):
-        # Some APIs return a cursor forever; trusting it means max_pages
-        # requests for one page of data on every single sync.
+    def test_a_short_page_with_a_cursor_is_not_a_complete_snapshot(self):
+        # A short page must not cause deletion of unseen records.
         page = {"items": [{"id": 1}], "meta": {"startAfterId": "still-here"}}
-        with mock.patch.object(self.client, "request", return_value=page) as request:
+        with mock.patch.object(self.client, "request", side_effect=[page, {"items": []}]) as request:
             items = self.client.paginate("/x", {}, "items")
         self.assertEqual(len(items), 1)
-        self.assertEqual(request.call_count, 1)
+        self.assertEqual(request.call_count, 2)
 
-    def test_a_missing_key_reads_as_an_empty_page(self):
-        with mock.patch.object(self.client, "request", return_value={}):
-            self.assertEqual(self.client.paginate("/x", {}, "items"), [])
+    def test_a_missing_key_does_not_become_an_empty_snapshot(self):
+        with mock.patch.object(self.client, "request", return_value={}), self.assertRaises(IncompleteFetch):
+            self.client.paginate("/x", {}, "items")
 
     def test_the_page_cap_stops_an_endless_walk(self):
         endless = {"items": [{"id": 1}, {"id": 2}],
                    "meta": {"nextPageUrl": "https://api.example.com/next"}}
-        with mock.patch.object(self.client, "request", return_value=endless) as request:
-            items = self.client.paginate("/x", {}, "items")
+        with mock.patch.object(self.client, "request", return_value=endless) as request, self.assertRaises(IncompleteFetch):
+            self.client.paginate("/x", {}, "items")
         self.assertEqual(request.call_count, self.client.max_pages)
-        # And the caller can tell it was truncated rather than under-reporting.
-        self.assertTrue(self.client.hit_page_cap(items))
+        # No partial snapshot is returned for the collector to publish.
 
 
 if __name__ == "__main__":

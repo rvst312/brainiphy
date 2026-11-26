@@ -46,7 +46,7 @@ STAGE_NAMES: dict[str, str] = {}
 
 
 def collect_location() -> list[dict]:
-    loc = client.get(f"/locations/{LOCATION_ID}").get("location") or {}
+    loc = client.get_object(f"/locations/{LOCATION_ID}", "location")
     if not loc:
         return []
     return [{
@@ -59,7 +59,7 @@ def collect_location() -> list[dict]:
 
 
 def collect_custom_fields() -> list[dict]:
-    rows = client.get(f"/locations/{LOCATION_ID}/customFields").get("customFields") or []
+    rows = client.get_list(f"/locations/{LOCATION_ID}/customFields", "customFields")
     if not rows:
         return []
     body = "\n".join(f"- **{f.get('name')}** (`{f.get('fieldKey')}`) — {f.get('dataType')}"
@@ -69,7 +69,7 @@ def collect_custom_fields() -> list[dict]:
 
 
 def collect_tags() -> list[dict]:
-    rows = client.get(f"/locations/{LOCATION_ID}/tags").get("tags") or []
+    rows = client.get_list(f"/locations/{LOCATION_ID}/tags", "tags")
     if not rows:
         return []
     body = "\n".join(f"- {t.get('name')}" for t in rows)
@@ -78,7 +78,7 @@ def collect_tags() -> list[dict]:
 
 
 def collect_users() -> list[dict]:
-    rows = client.get("/users/", {"locationId": LOCATION_ID}).get("users") or []
+    rows = client.get_list("/users/", "users", {"locationId": LOCATION_ID})
     out = []
     for u in rows:
         name = u.get("name") or " ".join(filter(None, [u.get("firstName"), u.get("lastName")]))
@@ -108,7 +108,7 @@ def collect_contacts() -> list[dict]:
 
 
 def collect_pipelines() -> list[dict]:
-    rows = client.get("/opportunities/pipelines", {"locationId": LOCATION_ID}).get("pipelines") or []
+    rows = client.get_list("/opportunities/pipelines", "pipelines", {"locationId": LOCATION_ID})
     out = []
     for p in rows:
         PIPELINE_NAMES[p["id"]] = p.get("name") or p["id"]
@@ -178,7 +178,7 @@ def collect_conversations() -> list[dict]:
 
 
 def collect_calendars() -> list[dict]:
-    rows = client.get("/calendars/", {"locationId": LOCATION_ID}).get("calendars") or []
+    rows = client.get_list("/calendars/", "calendars", {"locationId": LOCATION_ID})
     return [{
         "id": f"calendar-{c['id']}",
         "title": f"Calendar: {c.get('name')}",
@@ -204,17 +204,17 @@ MAX_TRANSCRIPTS = 200
 
 # Order matters: pipelines before opportunities, so stage ids resolve to names.
 COLLECTORS = [
-    Collector("location", "location", collect_location),
-    Collector("custom-fields", "schema", collect_custom_fields),
-    Collector("tags", "schema", collect_tags),
-    Collector("users", "users", collect_users),
-    Collector("contacts", "contacts", collect_contacts),
-    Collector("pipelines", "pipelines", collect_pipelines),
-    Collector("opportunities", "opportunities", collect_opportunities),
+    Collector("location", "location", collect_location, snapshot=True),
+    Collector("custom-fields", "schema", collect_custom_fields, snapshot=True),
+    Collector("tags", "schema", collect_tags, snapshot=True),
+    Collector("users", "users", collect_users, snapshot=True),
+    Collector("contacts", "contacts", collect_contacts, snapshot=True),
+    Collector("pipelines", "pipelines", collect_pipelines, snapshot=True),
+    Collector("opportunities", "opportunities", collect_opportunities, snapshot=True),
     Collector("conversations", "conversations", collect_conversations,
-              note=f"transcripts for the first {MAX_TRANSCRIPTS}"),
-    Collector("calendars", "calendars", collect_calendars),
-    Collector("forms", "forms", collect_forms),
+              note=f"transcripts for the first {MAX_TRANSCRIPTS}", snapshot=True),
+    Collector("calendars", "calendars", collect_calendars, snapshot=True),
+    Collector("forms", "forms", collect_forms, snapshot=True),
 ]
 
 

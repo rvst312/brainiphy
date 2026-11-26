@@ -30,6 +30,8 @@ from pathlib import Path
 
 import yaml
 
+from brainiphy_cli.storage import atomic_write, exclusive_lock
+
 HEADER = """\
 # Brains brainiphy knows about, newest last. Managed by `brain add`/`brain
 # forget`; editing it by hand is fine, it is only a list of paths.
@@ -57,16 +59,21 @@ def is_brain(path: Path) -> bool:
 
 # ------------------------------------------------------------- the list ----
 
-def known() -> list[Path]:
+def known(*, strict: bool = False) -> list[Path]:
     """Registered paths, in the order they were added."""
     path = registry_path()
     if not path.exists():
         return []
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        # A corrupt list must not take down every command that shows it. The
-        # entries are recoverable by hand; the tool staying usable is not.
+        if not isinstance(data, dict) or not isinstance(data.get("brains", []), list):
+            raise ValueError("expected a brains list")
+    except (yaml.YAMLError, ValueError, OSError) as exc:
+        message = f"cannot read brain list at {path}; repair it before making changes"
+        if strict:
+            raise ValueError(message) from exc
+        from brainiphy_cli import ui
+        ui.warn(message)
         return []
     out: list[Path] = []
     for entry in data.get("brains") or []:
@@ -85,7 +92,7 @@ def _write(paths: list[Path]) -> None:
     body = yaml.safe_dump(
         {"brains": [{"path": str(p)} for p in paths]},
         sort_keys=False, default_flow_style=False, allow_unicode=True)
-    path.write_text(HEADER + "\n" + body, encoding="utf-8")
+    atomic_write(path, HEADER + "\n" + body)
 
 
 def remember(project: Path) -> bool:
@@ -95,23 +102,25 @@ def remember(project: Path) -> bool:
     fills itself in as you work rather than having to be curated.
     """
     project = project.expanduser().resolve()
-    paths = known()
-    if project in paths:
-        return False
-    paths.append(project)
-    _write(paths)
-    return True
+    with exclusive_lock(home() / ".brains.lock"):
+        paths = known(strict=True)
+        if project in paths:
+            return False
+        paths.append(project)
+        _write(paths)
+        return True
 
 
 def forget(project: Path) -> bool:
     """Drop a brain from the list, leaving every one of its files alone."""
     project = project.expanduser().resolve()
-    paths = known()
-    remaining = [p for p in paths if p != project]
-    if len(remaining) == len(paths):
-        return False
-    _write(remaining)
-    return True
+    with exclusive_lock(home() / ".brains.lock"):
+        paths = known(strict=True)
+        remaining = [p for p in paths if p != project]
+        if len(remaining) == len(paths):
+            return False
+        _write(remaining)
+        return True
 
 
 # ----------------------------------------------------------- what to show ----

@@ -79,14 +79,15 @@ brain new-connector <project> <name> [--interval-minutes N]
                                                   The registry entry records the kind as `type:`
                                                   (local-folder / http-api / custom, or the preset's own
                                                   name); it is display metadata, nothing branches on it.
-brain sync [project] [--dry-run] [--full] [--backend NAME]
+brain sync [project] [--dry-run] [--full] [--backend NAME] [--code-only]
                                                   run due connectors, rebuild the graph if anything changed.
-                                                  --full forces `graphify extract` (see "Building the graph")
+                                                  --full also builds when nothing is due; --code-only opts into AST-only updates
 brain connect-claude [project] [--desktop] [--trust-desktop]
                                                   graphify claude install; optionally MCP server + trusted folder in Desktop
 brain schedule [project] --interval-minutes N [--load]
                                                   generate (and optionally load) a LaunchAgent that runs
                                                   `brain sync <project> --full` (see step 7 for the --full)
+brain migrate-identity [project]                copy conventional legacy credential references into unique names
 brain secret set <item>                         prompt (hidden input) and store in the macOS Keychain
 brain secret get <item>                         read a stored secret (debugging only)
 brain status [project]                          connectors, whether each can actually run, graph size, next step
@@ -157,7 +158,8 @@ more than the one above it.
    ```
    brain new-connector <project> <name> --mirror <folder> --interval-minutes <N>
    ```
-   That writes a complete `rsync -a --delete` connector and registers it. Only hand-write a mirror connector if the source needs filtering the generated `EXCLUDES` list can't express.
+   That writes a complete `rsync -a --delete` connector and registers it. Conversion is staged: malformed
+   exports fail with a message and preserve the last converted records. Only hand-write a mirror connector if the source needs filtering the generated `EXCLUDES` list can't express.
 3. **Content reachable by public URL** → use graphify's own `graphify add <url>` directly, no connector needed. It only writes into `raw/`; the graph is rebuilt by `brain sync <project> --full` afterwards.
 4. **A source this Claude session already has an MCP connector for** (Drive, Railway, etc. — check what's currently available) → prefer calling that over building fresh auth, inside a generated `sync.py`.
 5. **A REST API with no preset**:
@@ -182,8 +184,15 @@ ask it rather than opening files to find out.
 
 **Credentials**, for every connector that needs one:
 ```
-brain secret set graphify-<project-slug>-<name>
+brain secret set <SECRET_ITEM printed by brain new-connector>
 ```
+New brains persist a unique resource namespace in `connectors/identity.json`, so two client folders called
+`brain` do not share credentials, MCP server names or new LaunchAgent labels. Use the generated `SECRET_ITEM`,
+including any explicit override. For an older brain, `brain migrate-identity <project>` copies conventional
+legacy credentials into unique names and updates template `SECRET_ITEM` references; it never deletes old
+Keychain items or rewrites custom credential names. Probe afterwards to verify the account. Hand-written
+credential lookups need manual adaptation; do not infer which tenant a previously shared token belongs to.
+
 Prompts for hidden input. Never accept a secret value as chat text or a CLI argument — shell history, process listings and launchd logs would all leak it. If a user pastes one into the conversation anyway, store it, then tell them to rotate it.
 
 **Probe an API or preset connector before the first sync.** It reports which objects the credential can actually
@@ -205,25 +214,34 @@ next client gets it for free — drop the file in `src/brainiphy_cli/presets/` a
 
 **Writing records that are worth querying.** Two things decide whether the graph can answer real questions:
 - Resolve foreign keys to names before writing. `stage_id: f7a80aa4-…` is dead weight; `stage: "Awaiting payment"` is what people ask about. Put the resolved value in the frontmatter too, so it can be filtered without parsing prose.
-- Key each record by a stable remote id. `write_record()` slugs it into the filename, so re-runs overwrite in place instead of adding a duplicate node every sync.
+- Key each record by a stable remote id. `write_record()` adds a hash of the complete ID to a readable filename, so distinct IDs cannot collide through slug normalization. Unchanged records keep their bytes and capture time.
 
 ### 5. Run the first sync
 ```
 brain sync <project> --full
 ```
-Runs every registered connector, then rebuilds the graph.
+Runs due registered connectors, then rebuilds the graph even if none was due.
 
-**Building the graph — the part that is easy to get wrong.** There are two graphify commands and picking the
-wrong one silently does nothing:
-- `graphify extract <project> --no-gitignore` is the full pass and the **only** one that indexes documents
-  (Markdown, PDFs…), which is what a business brain is mostly made of. It needs an LLM backend.
-- `graphify update <project>` re-extracts *code* files only, via a local AST pass, no API key. Cheap, and a
-  complete no-op on a corpus of documents — it prints "no code files found" and exits non-zero.
+**Building the graph.** `brain sync` now uses `graphify extract <project> --no-gitignore` by default,
+including subsequent runs, because documents need semantic extraction. A normal manual sync must keep the
+business knowledge current. This can invoke the configured model when documents changed; it is no longer a
+code-only local operation after the first build.
 
-`brain sync` picks for you: full pass on the first build (or with `--full`), incremental afterwards. It also
-always passes `--no-gitignore` on the extract pass, which is **required**: graphify honors `.gitignore`, and
-`brain init` puts `raw/` in it, so without the flag graphify skips the entire corpus and reports an empty
-project. `graphify update` accepts only `--force` and `--no-cluster` and must not be given it.
+`--full` also requests a build when no connector is due. It does not bypass connector polling intervals.
+`--code-only` explicitly selects `graphify update` for an existing graph; it performs no semantic extraction
+and receives neither `--backend` nor `--no-gitignore`. First builds and `--full` still use extraction.
+
+A pending indexing marker survives a failed or interrupted build. The next sync retries the graph without
+requiring a redundant connector download. Concurrent syncs on one brain are refused. A partial connector
+failure is reported even when other successfully published objects can be indexed.
+
+New templates declare `Collector(..., snapshot=True)` and return complete snapshots. The shared run loop
+validates every record before publishing and removes only owned files absent from a successful snapshot.
+Previous files survive missing scope, malformed responses or pagination limits. Older collectors default to
+upserts without deletion: audit their fetch logic before enabling `snapshot=True`. Use `get_list()` and
+`get_object()` for required response fields; never turn malformed responses into empty collections. Files are replaced atomically; publication across several files is not one
+filesystem transaction. Prefer `collect.run()` for custom connectors too. Old hand-written scripts that only
+call `write_record()` need to adopt the collector loop to reconcile deletions.
 
 **Which model indexes the documents.** No API key is required. `brain sync` picks the backend like this:
 - An explicit `brain sync <project> --full --backend <name>` always wins.
@@ -254,10 +272,10 @@ loop with nothing to sync is a silent no-op that is confusing to debug later:
 ```
 brain schedule <project> --interval-minutes 15 --load
 ```
-The scheduled command is `brain sync <project> --full`, and the `--full` is load-bearing: the incremental pass
-never indexes documents, so without it an unattended brain mirrors new files in and reports success while the
-graph quietly stops being current. It is also cheap — graphify gates the extract pass behind its own manifest
-and semantic cache, so a run with nothing changed costs about a second and no tokens.
+The scheduled command remains `brain sync <project> --full`: it also checks for indexing work when no
+connector is due. Labels include the brain's persisted namespace. Existing jobs are reused only when their
+arguments point to this exact project; a custom `--slug` cannot overwrite another project's job. Plists are
+serialized as XML data, so spaces, ampersands and other valid path characters round-trip correctly.
 
 `brain sync <project>` is also safe to run by hand or on request ("sync the CRM now").
 

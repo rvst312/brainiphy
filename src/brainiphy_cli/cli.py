@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import shlex
+
+import yaml
 import sys
 from pathlib import Path
 
@@ -121,7 +124,7 @@ def _probe_command(script_path: Path) -> str:
     sys.executable for the same reason; a hint that fails to import is worse
     than no hint.
     """
-    return f"{sys.executable} {script_path} --out /tmp/probe --probe"
+    return shlex.join([sys.executable, str(script_path), "--out", "/tmp/probe", "--probe"])
 
 
 def cmd_new_connector(args: argparse.Namespace) -> int:
@@ -158,7 +161,7 @@ def cmd_new_connector(args: argparse.Namespace) -> int:
     if script_path is None:
         return 1
 
-    secret_item = project_mod.secret_item_name(project, name)
+    secret_item = project_mod.connector_secret_item(project, name)
     short = ui.short_path(project)
 
     if mirror:
@@ -227,9 +230,9 @@ def cmd_presets(args: argparse.Namespace) -> int:
 def cmd_sync(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     ui.header("brain sync" + (" (dry run)" if args.dry_run else ""), project)
-    report = sync_mod.run(project, dry_run=args.dry_run, full=args.full, backend=args.backend)
+    report = sync_mod.run(project, dry_run=args.dry_run, full=args.full, backend=args.backend, code_only=args.code_only)
     if args.dry_run:
-        return 0
+        return 1 if report.errors else 0
 
     summary = ui.table("", "", title=None)
     summary.add_row(ui.cell("ran", "brain.info"), ui.cell(", ".join(report.ran) or "—", "brain.ok"))
@@ -251,6 +254,11 @@ def cmd_connect_claude(args: argparse.Namespace) -> int:
 
 
 # -------------------------------------------------------------- schedule --
+
+def cmd_migrate_identity(args: argparse.Namespace) -> int:
+    project = Path(args.project).expanduser().resolve()
+    return 0 if project_mod.migrate_identity(project) else 1
+
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
@@ -402,6 +410,17 @@ def cmd_status(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------ main --
 
 def main() -> int:
+    try:
+        return _main()
+    except (ValueError, OSError, RuntimeError, yaml.YAMLError) as exc:
+        ui.error(str(exc))
+        return 1
+    except (KeyboardInterrupt, EOFError):
+        ui.error("cancelled")
+        return 130
+
+
+def _main() -> int:
     parser = argparse.ArgumentParser(prog="brain", description=__doc__)
     # Not required: bare `brain` opens the app. Every command below is still
     # available by name, which is what a script or an agent should use.
@@ -458,9 +477,11 @@ def main() -> int:
     p.add_argument(
         "--full",
         action="store_true",
-        help="Full re-index (graphify extract) instead of the incremental code-only update. "
-        "Needed to pick up document changes; happens automatically on the first build.",
+        help="Build with graphify extract even when no connector is due. "
+        "Semantic extraction is already the default when connectors run.",
     )
+    p.add_argument("--code-only", action="store_true",
+                   help="Use a local AST update for an existing graph; does not index documents. --full overrides this.")
     p.add_argument(
         "--backend",
         metavar="NAME",
@@ -482,6 +503,10 @@ def main() -> int:
     p.add_argument("--slug", default=None)
     p.add_argument("--load", action="store_true", help="Load it immediately with launchctl")
     p.set_defaults(func=cmd_schedule, framed=True)
+
+    p = sub.add_parser("migrate-identity", help="Move conventional legacy credential references to unique per-brain names")
+    p.add_argument("project", nargs="?", default=".")
+    p.set_defaults(func=cmd_migrate_identity, framed=True)
 
     secret = sub.add_parser("secret", help="Manage credentials in the Keychain")
     secret_sub = secret.add_subparsers(dest="secret_command", required=True)
@@ -535,7 +560,12 @@ def main() -> int:
     p.add_argument("project", nargs="?", default=".")
     p.set_defaults(func=cmd_status, framed=True)
 
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+    if argv and not argv[0].startswith("-") and argv[0] not in sub.choices:
+        first = argv[0]
+        if first.startswith(("/", "~", ".")) or "/" in first or Path(first).is_dir():
+            argv = ["new", *argv]
+    args = parser.parse_args(argv)
     if getattr(args, "func", None) is None:
         return app.run(None)
 

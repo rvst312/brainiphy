@@ -167,18 +167,21 @@ Existing scripts are never overwritten.
 Why `--mirror` copies rather than symlinks: graphify doesn't follow symlinks, so a linked folder is simply never
 indexed. `--delete` keeps it idempotent — files removed at the source disappear from the brain instead of
 lingering as stale nodes. The mirror connector also converts the file types graphify can't read (CSV, JSON) into
-one Markdown record per row, and names in its summary anything still unreadable — a `.numbers` file, a video —
+one Markdown record per row. Conversions are staged, so a malformed export preserves the previous converted
+records and returns an error. The summary names in its summary anything still unreadable — a `.numbers` file, a video —
 rather than leaving it silently out of the graph.
 
-### `brain sync [project] [--dry-run] [--full] [--backend NAME]`
+### `brain sync [project] [--dry-run] [--full] [--backend NAME] [--code-only]`
 
 Runs every connector whose interval has elapsed (tracked in `connectors/state/<name>.json`), then rebuilds the
-graph — but only if at least one connector actually ran, or `--full` was passed.
+graph when a connector ran, a previous build is pending, or `--full` was passed. Failed connectors remain due.
+A per-project lock prevents simultaneous sync writers.
 
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | Report which connectors are due and whether their scripts exist. Runs nothing, touches nothing. |
-| `--full` | Force a full re-index, and rebuild even if nothing was due. Implied on the first build. |
+| `--full` | Build with semantic extraction even if nothing was due. Does not bypass polling intervals. |
+| `--code-only` | Opt into a local AST update for an existing graph. Does not index document content. `--full` overrides it. |
 | `--backend NAME` | Force a specific LLM backend for the indexing pass. |
 
 Prints `ran=[...] skipped=[...] errors=[...] graph_rebuilt=<bool>` and exits non-zero if any connector failed.
@@ -188,8 +191,8 @@ Safe to run against an empty registry.
 
 | | indexes | needs an LLM | when brain uses it |
 | --- | --- | --- | --- |
-| `graphify extract` | documents **and** code | yes, for documents | first build, and every `--full` |
-| `graphify update` | code only (local AST) | no | every later manual run |
+| `graphify extract` | documents **and** code | yes, for documents | every build by default |
+| `graphify update` | code only (local AST) | no | explicit `--code-only` on an existing graph |
 
 A brain made of documents therefore needs a model to index it — **but not an API key**. `brain sync` chooses the
 backend in this order:
@@ -222,25 +225,36 @@ up changes.
 
 ### `brain schedule [project] --interval-minutes N [--load]`
 
-Generates a LaunchAgent at `~/Library/LaunchAgents/com.graphify.sync.<slug>.plist` that runs
+Generates a LaunchAgent at `~/Library/LaunchAgents/com.graphify.sync.<namespace>.plist` that runs
 `brain sync <project> --full` on an interval. Logs land in `connectors/logs/`.
 
 Without `--load` it only writes the plist and prints the `launchctl bootstrap` command; with `--load` it
-activates immediately. Refuses to run if the project has no registered connectors — scheduling a sync loop with
+activates immediately, unloading an already loaded job before reloading its new configuration. Refuses to run if the project has no registered connectors — scheduling a sync loop with
 nothing to sync is a silent no-op that is confusing to debug later.
 
-The `--full` in the scheduled command is load-bearing: the incremental pass never indexes documents, so without
-it an unattended brain would mirror new files in and report success while the graph quietly stopped being
-current. It's also cheap — graphify gates the pass behind its own manifest and semantic cache, so a run with
-nothing changed costs about a second and no tokens.
+The scheduled `--full` also builds when no connector was due. New job names include the persisted namespace;
+legacy or custom labels are reused only if their arguments point to this exact project. `--slug NAME` can
+choose a label, but cannot overwrite a job belonging to another project. Paths are escaped by `plistlib`.
+
+### `brain migrate-identity [project]`
+
+Copies conventional legacy Keychain credentials into unique per-brain names and rewrites the generated
+`SECRET_ITEM` assignments. An existing unique credential wins; custom item references and legacy Keychain
+items are preserved. No credential is printed or passed as a command argument. A failed copy leaves the
+script unchanged. Probe the connector afterwards to verify the tenant: an old shared token may already
+have been overwritten by another client's setup. Hand-written lookups need manual adaptation.
+
+New resources use `connectors/identity.json`, a persisted namespace with a fresh random identifier. Reusing a path creates a different identity.
+It remains stable when the brain moves. A copy containing that file retains the same logical identity;
+when using a copied folder for a different client, initialize a fresh brain and add its sources separately.
 
 ### `brain secret set <item>` / `brain secret get <item>`
 
 Connector credentials, stored in the macOS Keychain.
 
 ```bash
-brain secret set graphify-acme-hubspot   # prompts with hidden input
-brain secret get graphify-acme-hubspot   # debugging only; prints bare, for piping
+brain secret set <generated-SECRET_ITEM>   # prompts with hidden input
+brain secret get <generated-SECRET_ITEM>   # debugging only; prints bare, for piping
 ```
 
 Connectors read credentials at runtime via `keychain.get_secret()`. Secrets never reach `registry.yaml`, CLI
@@ -261,30 +275,27 @@ open files and find out.
 `brain new-connector` generates a script that already satisfies the contract. In most cases you only fill in
 `fetch_records()`:
 
-```python
-SOURCE_SYSTEM = "hubspot"
+For a REST API, use `--api` and its `HttpClient.paginate()`. For other sources, implement `fetch_records()`
+with a complete list of records; raise on incomplete results. Read credentials using the generated
+`SECRET_ITEM` constant. The shared collector loop preserves previous data when a fetch fails.
 
-def fetch_records() -> list[dict]:
-    token = get_secret("graphify-acme-hubspot")
-    req = urllib.request.Request(
-        "https://api.example.com/v3/records",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.load(resp)
-    return [
-        {"id": r["id"], "title": r["name"], "body": r["notes"]}
-        for r in data["results"]
-    ]
-```
 
 Each record needs `id`, `title` and `body`; any other keys are written into the Markdown frontmatter. The
-template's `main()` handles `--out`, normalization and stable file naming.
+template's `main()` delegates to `collect.run()` for `--out`, `--probe`, normalization and stable naming.
+New templates opt into `Collector(..., snapshot=True)`: a successful complete snapshot reconciles deleted
+records. The default for older collectors is upsert-only; enable snapshots only after verifying their fetch
+returns a complete list or raises. `HttpClient.get_list()` and `get_object()` validate required fields. Failure, missing scope or incomplete pagination
+preserves the prior snapshot. Per-collector manifests under `raw/<name>/.brainiphy-state/` track ownership,
+including when several collectors share a folder. Legacy files in a shared folder are adopted only when
+returned again; unmatched legacy files need explicit review. Direct `write_record()` calls alone do not
+reconcile deletions. Unchanged records retain bytes, mtime and `captured_at`; reserved provenance keys cannot
+be overwritten by extra fields.
 
 **The contract**, if you ever write one from scratch:
 
 - Accept `--out <dir>` and write normalized Markdown there via `frontmatter.write_record()`
-- Name files by a stable slug of the remote record ID, so re-runs overwrite in place
+- Use `write_record()` naming: readable slug plus a hash of the complete remote ID. Matching legacy files
+  migrate on write; different IDs do not overwrite each other after slug normalization.
 - Exit `0` on success, non-zero on failure, with a human-readable summary on stdout
 - Read credentials only through `keychain.get_secret()` — never as a CLI argument and never hardcoded, since
   shell history, process listings and launchd logs would all leak them
@@ -315,6 +326,9 @@ A brain is an ordinary folder. This is everything `brain` puts in it:
 <project>/
 ├── connectors/
 │   ├── registry.yaml         # which connectors exist + their type and interval
+│   ├── identity.json         # stable namespace for credentials, MCP and schedules
+│   ├── .sync.lock            # concurrent sync exclusion
+│   ├── .graph-pending.json   # present until outstanding indexing succeeds
 │   ├── <name>/sync.py        # one script per data source
 │   ├── state/<name>.json     # last-run timestamps, drives interval checks
 │   └── logs/                 # LaunchAgent stdout/stderr
@@ -327,3 +341,24 @@ A brain is an ordinary folder. This is everything `brain` puts in it:
 `registry.yaml` is meant to be readable and is safe to edit by hand — a malformed entry is skipped rather than
 taking down the whole sync. Everything under `state/`, `logs/`, `raw/` and `graphify-out/` is generated and
 gitignored.
+
+### HTTP boundary and incomplete results
+
+`HttpClient` sends credentials only to the configured HTTP(S) origin (scheme, host and port). Pagination
+links and redirects to other origins, including HTTPS downgrades, are refused. Relative pagination links
+are resolved before validation. A missing collection field or a walk that reaches `max_pages` while another
+page remains raises `IncompleteFetch`; do not convert that exception into an empty list.
+
+Connector names must begin with an ASCII letter or digit and contain only letters, digits, underscores or
+hyphens. Creation and sync reject paths and symlinks that escape the brain. Mirror source and destination
+must not overlap. New custom templates use `collect.run()`; previously generated scripts are not overwritten
+automatically and should be adapted explicitly when they own their own write loop.
+
+`brain status` inspects files without querying launchd. A configured schedule is not proof of a live loaded
+job; the schedule detail says that activation was not checked. The global brain registry is read under
+validation and written atomically with a lock; adding or forgetting a brain refuses to overwrite corrupt YAML.
+
+When upgrading copied connectors, adapt fetches to strict response validation before enabling snapshots.
+Update mirror scripts from the current template to receive staged conversion; edits to template source do not
+rewrite existing client scripts. The shared library's HTTP boundary and record naming fixes apply immediately
+with an editable installation. Run API probes before a real sync.

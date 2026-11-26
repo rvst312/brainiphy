@@ -88,7 +88,7 @@ class ResolveBackendTests(unittest.TestCase):
 class BuildGraphCommandTests(TempProjectTestCase):
     """Which graphify command gets built, and with which flags."""
 
-    def _run_build(self, *, full=False, backend=None, returncode=0, output="",
+    def _run_build(self, *, full=False, backend=None, code_only=False, returncode=0, output="",
                    make_graph=True):
         """Call build_graph with the subprocess replaced, and return the argv
         it would have executed."""
@@ -105,7 +105,7 @@ class BuildGraphCommandTests(TempProjectTestCase):
         with mock.patch.object(sync, "find_graphify", return_value="/fake/bin/graphify"), \
                 mock.patch.object(sync.subprocess, "run", side_effect=fake_run), \
                 quiet() as buf:
-            ok, label = sync.build_graph(self.project, full=full, backend=backend)
+            ok, label = sync.build_graph(self.project, full=full, backend=backend, code_only=code_only)
         return captured.get("cmd", []), ok, label, buf.getvalue()
 
     def test_first_build_is_a_full_extract_with_no_gitignore(self):
@@ -118,10 +118,10 @@ class BuildGraphCommandTests(TempProjectTestCase):
         self.assertTrue(ok)
         self.assertEqual(label, "graphify extract")
 
-    def test_later_builds_are_incremental_updates(self):
+    def test_code_only_opt_in_uses_incremental_update(self):
         self.scaffold()
         self.write_graph()
-        cmd, _, label, _ = self._run_build()
+        cmd, _, label, _ = self._run_build(code_only=True)
         self.assertEqual(cmd[1], "update")
         self.assertEqual(label, "graphify update")
 
@@ -134,9 +134,16 @@ class BuildGraphCommandTests(TempProjectTestCase):
         """
         self.scaffold()
         self.write_graph()
-        cmd, _, _, _ = self._run_build(backend="claude-cli")
+        cmd, _, _, _ = self._run_build(backend="claude-cli", code_only=True)
         self.assertNotIn("--backend", cmd)
         self.assertNotIn("--no-gitignore", cmd)
+
+    def test_later_builds_index_documents_by_default(self):
+        self.scaffold()
+        self.write_graph()
+        cmd, _, _, _ = self._run_build(backend="ollama")
+        self.assertEqual(cmd[1], "extract")
+        self.assertIn("--no-gitignore", cmd)
 
     def test_full_forces_an_extract_even_with_a_graph_present(self):
         # The document corpus changed; only extract re-reads documents.
